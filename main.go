@@ -10,6 +10,7 @@ import (
 	"os"
 
 	"wombatlord/imagestuff/src/util"
+	"wombatlord/imagestuff/src/rotato"
 	"github.com/alexflint/go-arg"
 	"github.com/nfnt/resize"
 )
@@ -32,13 +33,15 @@ type Mode int
 const (
 	Normal Mode = iota
 	TurboGFX
+	ASCIIFY
 )
 
 // Palettes is the mapping of glyph to brightness levels
 // indexed by Mode
-var Palettes = [2][5]string{
+var Palettes = [3][5]string{
 	Normal:   {"█", "█", "█", "█", "█"},
 	TurboGFX: {" ", "░", "▒", "▓", "█"},
+	ASCIIFY: {" ",".","*","$","@"},
 }
 
 const NotSet = 0
@@ -49,10 +52,11 @@ type Cli struct {
 	Squash   float64 `arg:"-w, --wide-boyz" help:"How wide you want it guv? (Widens the image)" default:"1.0"`
 	StdInput bool    `arg:"-i, --in" help:"read from stdin"`
 	Mode     Mode    `arg:"-m, --mode" help:"mode selection determines characters used for rendering" default:"0"`
-	YOrigin  int     `arg:"-a, --y-min" help:"minimum Y, top of focus" default:"0"`
-	Height   int     `arg:"-b, --height" help:"height, vertical size of focus" default:"0"`
-	XOrigin  int     `arg:"-c, --x-min" help:"minimum X, left edge of focus" default:"0"`
-	Width    int     `arg:"-d, --width" help:"width, width of focus" default:"0"`
+	YOrigin  int     `arg:"--y-org" help:"minimum Y, top of focus" default:"0"`
+	Height   int     `arg:"--height" help:"height, vertical size of focus" default:"0"`
+	XOrigin  int     `arg:"--x-org" help:"minimum X, left edge of focus" default:"0"`
+	Width    int     `arg:"--width" help:"width, width of focus" default:"0"`
+	HueAngle float32 `arg:"--hue" help:"hue rotation angle in radians" default:"0.0"`
 }
 
 func (c Cli) GetPath() string    { return c.Path }
@@ -166,7 +170,7 @@ func PrintImg(mode Mode, focusView FocusView, img image.Image) {
 			}
 
 			// get the rgba colour
-			rgb := color.RGBAModel.Convert(img.At(x, y)).(color.RGBA)
+			rgb := rotato.RotateHue(color.RGBAModel.Convert(img.At(x, y)).(color.RGBA), Args.HueAngle)
 
 			// get the colour and glyph corresponding to the brightness
 			ink := RGB(rgb.R, rgb.G, rgb.B, Foreground)
