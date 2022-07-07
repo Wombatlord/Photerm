@@ -1,16 +1,20 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"image"
 	"image/color"
 	_ "image/jpeg"
 	_ "image/png"
+	"io/ioutil"
 	"log"
 	"os"
+	"strings"
 
-	"wombatlord/imagestuff/src/util"
 	"wombatlord/imagestuff/src/rotato"
+	"wombatlord/imagestuff/src/util"
+
 	"github.com/alexflint/go-arg"
 	"github.com/nfnt/resize"
 )
@@ -109,6 +113,19 @@ var (
 	imgFile *os.File
 )
 
+// ArgsToJson serialises the passed CLI args.
+// The output file will take its name from Args.Path
+func ArgsToJson(c Cli) {
+	file, _ := json.MarshalIndent(c, "", " ")
+	fileName := fmt.Sprintf("%s.json", strings.Split(c.Path, ".")[0])
+
+	_ = ioutil.WriteFile(fileName, file, 0644)
+}
+
+// loadImage first checks if an image is being passed via standard in.
+// For example, curling an image and passing it through a pipe.
+// If no file is passed this way, then os.Open will load the image
+// indicated by Args.Path.
 func loadImage(ps PathSpec) (img image.Image, err error) {
 	if ps.GetStdIn() {
 		imgFile = os.Stdin
@@ -186,6 +203,8 @@ func PrintImg(mode Mode, focusView FocusView, img image.Image) {
 
 func main() {
 	arg.MustParse(&Args)
+	ArgsToJson(Args)
+	
 	img, err := loadImage(Args)
 	if err != nil {
 		log.Fatal(err)
