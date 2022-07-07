@@ -7,7 +7,6 @@
 </div>
 <p align="center">
 	<img alt="GitHub" src="https://img.shields.io/github/license/Wombatlord/Photerm?logo=Github&logoColor=green">
-	
 	<img alt="GitHub" src="https://img.shields.io/github/go-mod/go-version/Wombatlord/photerm?logo=go"></p>
 
 ## Introduction
