@@ -25,6 +25,7 @@ type Painter string
 const (
 	Foreground Painter = "\u001b[38;"
 	Background         = "\u001b[48;"
+    Bold               = "\u001b[1m"
 	Normalizer         = "\u001b[0m"
 )
 
@@ -67,6 +68,8 @@ type Cli struct {
 	XOrigin  int     `arg:"--x-org" help:"minimum X, left edge of focus" default:"0"`
 	Width    int     `arg:"--width" help:"width, width of focus" default:"0"`
 	HueAngle float32 `arg:"--hue" help:"hue rotation angle in radians" default:"0.0"`
+    Bold     bool    `arg:"--bold" help:"Render the glyphs in bold" default:"true"`
+    CustomPalette string `arg:"--custom" help:"Supply a string of characters to be used to indicate brightness" default:"#"`
 }
 
 func (c Cli) GetPath() string    { return c.Path }
@@ -77,6 +80,7 @@ func (c Cli) GetYOrigin() int    { return c.YOrigin }
 func (c Cli) GetHeight() int     { return c.Height }
 func (c Cli) GetXOrigin() int    { return c.XOrigin }
 func (c Cli) GetWidth() int      { return c.Width }
+func (c Cli) GetCustomPalette() string { return c.CustomPalette }
 
 func (c *Cli) GetFocusView(img image.Image) FocusView {
 	// set defaults as dynamic image size
@@ -224,7 +228,37 @@ func PrintImg(charset Charset, focusView FocusView, img image.Image) {
 	}
 }
 
-func tdPalette(img image.Image, focusView FocusView, sf ScaleFactors) {
+func CustomPalette(img image.Image, focusView FocusView, sf ScaleFactors, isBold bool, palette string) {
+    glyphs := [256]rune{}
+    copy(glyphs[:], []rune(util.Stretch(palette, 255)))
+
+	// img relative x, y pixel lower bounds
+	top, left := focusView.GetYOrigin(), focusView.GetXOrigin()
+
+	// img relative x, y pixel upper bounds (right, top)
+	right := focusView.GetXOrigin() + focusView.GetWidth()
+	btm := focusView.GetYOrigin() + focusView.GetHeight()
+
+	scaleY := 1
+
+	// go row by row in the scaled image.Image and...
+	for y := top; y < btm; y += int(Args.Squash) {
+
+		// print cells from left to right
+		for x := left; x < right; x += scaleY {
+			// get brightness of cell
+			c := color.GrayModel.Convert(img.At(x, y)).(color.Gray)
+
+			// get the rgba colour
+			rgb := rotato.RotateHue(color.RGBAModel.Convert(img.At(x, y)).(color.RGBA), Args.HueAngle)
+
+			// get the colour and glyph corresponding to the brightness
+			ink := Bold + RGB(rgb.R, rgb.G, rgb.B, Foreground)
+            glyph := string(glyphs[c.Y])
+			fmt.Print(ink + glyph)
+		}
+		fmt.Println()
+	}
 	// pal := make([]byte, 256)
 
 	// // setup a palette mapping
@@ -295,11 +329,12 @@ func main() {
 	img = ScaleImg(img, Args)
 	focusView := Args.GetFocusView(img)
 
-	switch {
-	case Args.Mode == "A":
+	switch Args.Mode {
+	case "A":
 		PrintImg(Args.Charset, focusView, img)
-
-	case Args.Mode == "B":
+	case "B":
 		PaletteTesting(Args.Charset, focusView, img)
-	}
+	case "C":
+        CustomPalette(img, focusView, Args, Args.Bold, Args.GetCustomPalette())
+    }
 }
