@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"image"
 	"image/color"
-
 	_ "image/jpeg"
 	_ "image/png"
 	"io/ioutil"
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"wombatlord/imagestuff/src/rotato"
 	"wombatlord/imagestuff/src/util"
@@ -21,6 +21,7 @@ import (
 )
 
 type Painter string
+type ImageBuff []image.Image
 
 const (
 	Foreground Painter = "\u001b[38;"
@@ -52,6 +53,7 @@ var Charsets = [3][5]string{
 var Ramps = []string{
 	Normal: "$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,^`'. ",
 }
+
 
 const NotSet = 0
 
@@ -151,6 +153,37 @@ func loadImage(ps PathSpec) (img image.Image, err error) {
 	return img, nil
 }
 
+// loadImages should load a series of images into a buffer.
+// Returning buffer for consumption elsewhere should allow
+// video in terminal via these render functions.
+func loadImages() (imageBuff ImageBuff, err error) {
+	fs, _ := ioutil.ReadDir("./tmp")
+		
+	// Iterate through the []fs.FileInfo array
+	// i = 1 for coherence with sequential image filenames.
+	for i := 47; i < len(fs); i++ {
+		imgFile, err = os.Open(fmt.Sprintf("./tmp/%d.jpg", i))
+		
+		if err != nil {
+			log.Fatalf("LOAD ERR: %s",err)
+		}
+
+		defer imgFile.Close()
+
+		img, _, err := image.Decode(imgFile)
+		
+		if err != nil {
+			log.Fatalf("DECODE ERR: %s",err)
+		}
+		
+		// Scale image, then append to
+		img = ScaleImg(img, Args)
+		imageBuff = append(imageBuff, img)
+	}
+
+	return imageBuff, nil
+}
+
 // OutputBoundsOf consumes a Cli value and returns pixel width, height tuple
 func OutputDimsOf(scales ScaleFactors, img image.Image) (w, h uint) {
 	height := float64(uint(img.Bounds().Max.Y))
@@ -224,33 +257,6 @@ func PrintImg(charset Charset, focusView FocusView, img image.Image) {
 	}
 }
 
-func tdPalette(img image.Image, focusView FocusView, sf ScaleFactors) {
-	// pal := make([]byte, 256)
-
-	// // setup a palette mapping
-	// // palette: ABCDEFGHIJKLMNOP
-	// var chunkIdx byte = 0
-	// for len(pal) < 256 {
-	// 	//chunk := bytes.Repeat([]byte{0x41+chunkIdx}, 16)
-	// 	for i := 0; i < 16; i++ {
-	// 		chunkOffset := int(chunkIdx)*16
-
-	// 		idx := chunkOffset + i
-	// 		if idx > 255 {
-	// 			log.Fatalln("too big: ", idx)
-	// 		}
-	// 		pal[idx] = 0x41+chunkIdx
-	// 	}
-	// 	chunkIdx++
-	// }
-
-	// fmt.Printf("palette length: %d\n", len(pal))
-	// if len(pal) > 256 {
-	// 	log.Fatalf("Palette was too long!\n")
-	// }
-	// fmt.Println(pal)
-}
-
 func PaletteTesting(charset Charset, focusView FocusView, img image.Image) {
 	glyphs := Ramps[charset]
 
@@ -262,14 +268,13 @@ func PaletteTesting(charset Charset, focusView FocusView, img image.Image) {
 	btm := focusView.GetYOrigin() + focusView.GetHeight()
 
 	scaleY := 1
-
 	// go row by row in the scaled image.Image and...
 	for y := top; y < btm; y += int(Args.Squash) {
 
 		// print cells from left to right
 		for x := left; x < right; x += scaleY {
 			// get brightness of cell
-			c := avgPixel(img, x, y, int(Args.Squash), scaleY)
+			c := color.GrayModel.Convert(img.At(x, y)).(color.Gray)
 
 			// get the rgba colour
 			rgb := rotato.RotateHue(color.RGBAModel.Convert(img.At(x, y)).(color.RGBA), Args.HueAngle)
@@ -277,13 +282,70 @@ func PaletteTesting(charset Charset, focusView FocusView, img image.Image) {
 			// get the colour and glyph corresponding to the brightness
 			ink := RGB(rgb.R, rgb.G, rgb.B, Foreground)
 
-			fmt.Print(ink + string(glyphs[len(glyphs)*c/65536]))
+			fmt.Print(ink + string(glyphs[len(glyphs)*int(c.Y)/255]))
 		}
 		fmt.Println()
 	}
 }
 
+func vidTesting(imgs ImageBuff, charset Charset) {
+	glyphs := Ramps[charset]
+		
+	scaleY := 1
+	
+	for _, img := range(imgs) {
+
+		focusView := Args.GetFocusView(img)
+		// img relative x, y pixel lower bounds
+		top, left := focusView.GetYOrigin(), focusView.GetXOrigin()
+	
+		// img relative x, y pixel upper bounds (right, top)
+		right := focusView.GetXOrigin() + focusView.GetWidth()
+		btm := focusView.GetYOrigin() + focusView.GetHeight()
+
+
+		// go row by row in the scaled image.Image and...
+		for y := top; y < btm; y += int(Args.Squash) {
+			
+			// print cells from left to right
+			for x := left; x < right; x += scaleY {
+				// get brightness of cell
+				c := color.GrayModel.Convert(img.At(x, y)).(color.Gray)
+				
+				// get the rgba colour
+				rgb := rotato.RotateHue(color.RGBAModel.Convert(img.At(x, y)).(color.RGBA), Args.HueAngle)
+				
+				// get the colour and glyph corresponding to the brightness
+				ink := RGB(rgb.R, rgb.G, rgb.B, Foreground)
+				
+				fmt.Print(ink + string(glyphs[len(glyphs)*int(c.Y)/255]))
+			}
+			fmt.Println(Normalizer)
+		}
+		time.Sleep(350 * time.Millisecond)
+		//fmt.Print("\033[38D")
+		fmt.Print("\033[1920A")
+	}
+	
+}
+
 func main() {
+	arg.MustParse(&Args)
+	ArgsToJson(Args)
+
+	img, err := loadImages()
+	if err != nil {
+		log.Fatal(err)
+	}	
+	
+	switch {
+	case Args.Mode == "A":
+	vidTesting(img, Args.Charset)
+	}	
+}
+
+
+func main2() {
 	arg.MustParse(&Args)
 	ArgsToJson(Args)
 
