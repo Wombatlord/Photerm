@@ -310,15 +310,15 @@ func vidTesting(imgs ImageBuff, charset Charset) {
 			// print cells from left to right
 			for x := left; x < right; x += scaleY {
 				// get brightness of cell
-				c := color.GrayModel.Convert(img.At(x, y)).(color.Gray)
-				
+				c := avgPixel(img, x, y, int(Args.Squash), scaleY)
+
 				// get the rgba colour
 				rgb := rotato.RotateHue(color.RGBAModel.Convert(img.At(x, y)).(color.RGBA), Args.HueAngle)
-				
+
 				// get the colour and glyph corresponding to the brightness
 				ink := RGB(rgb.R, rgb.G, rgb.B, Foreground)
-				
-				fmt.Print(ink + string(glyphs[len(glyphs)*int(c.Y)/255]))
+
+				fmt.Print(ink + string(glyphs[len(glyphs)*c/65536]))
 			}
 			fmt.Println(Normalizer)
 		}
