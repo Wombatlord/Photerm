@@ -11,7 +11,6 @@ import (
 	"log"
 	"os"
 	"strings"
-	"time"
 
 	"wombatlord/imagestuff/src/rotato"
 	"wombatlord/imagestuff/src/util"
@@ -159,28 +158,27 @@ func loadImage(ps PathSpec) (img image.Image, err error) {
 func loadImages() (imageBuff ImageBuff, err error) {
 	fs, _ := ioutil.ReadDir("./tmp")
 		
-	// Iterate through the []fs.FileInfo array
-	// i = 1 for coherence with sequential image filenames.
-	for i := 47; i < len(fs); i++ {
-		imgFile, err = os.Open(fmt.Sprintf("./tmp/%d.jpg", i))
-		
+	for _, file := range fs {
+		imgFile, err = os.Open(fmt.Sprintf("./tmp/%s", file.Name()))
+		//print(imgFile.Name())
 		if err != nil {
 			log.Fatalf("LOAD ERR: %s",err)
 		}
-
+		
 		defer imgFile.Close()
-
+		
 		img, _, err := image.Decode(imgFile)
 		
 		if err != nil {
 			log.Fatalf("DECODE ERR: %s",err)
 		}
-		
 		// Scale image, then append to
 		img = ScaleImg(img, Args)
 		imageBuff = append(imageBuff, img)
 	}
-
+	
+	
+	//time.Sleep(4* time.Second)
 	return imageBuff, nil
 }
 
@@ -294,7 +292,7 @@ func vidTesting(imgs ImageBuff, charset Charset) {
 	scaleY := 1
 	
 	for _, img := range(imgs) {
-
+		
 		focusView := Args.GetFocusView(img)
 		// img relative x, y pixel lower bounds
 		top, left := focusView.GetYOrigin(), focusView.GetXOrigin()
@@ -322,7 +320,7 @@ func vidTesting(imgs ImageBuff, charset Charset) {
 			}
 			fmt.Println(Normalizer)
 		}
-		time.Sleep(350 * time.Millisecond)
+		//time.Sleep(1 * time.Millisecond)
 		//fmt.Print("\033[38D")
 		fmt.Print("\033[1920A")
 	}
