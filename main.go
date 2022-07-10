@@ -11,6 +11,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"wombatlord/imagestuff/src/rotato"
 	"wombatlord/imagestuff/src/util"
@@ -53,7 +54,6 @@ var Ramps = []string{
 	Normal: "$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,^`'. ",
 }
 
-
 const NotSet = 0
 
 type Cli struct {
@@ -62,7 +62,7 @@ type Cli struct {
 	Squash   float64 `arg:"-w, --wide-boyz" help:"How wide you want it guv? (Widens the image)" default:"1.0"`
 	StdInput bool    `arg:"-i, --in" help:"read from stdin"`
 	Mode     string  `arg:"-m, --mode" help:"mode selection determines renderer" default:"A"`
-	Charset  Charset `arg:"-p, --palette" help:"palette selection determines the character set used by the renderer" default:"0"`
+	Charset  Charset `arg:"-c, --Charset" help:"Charset selection determines the character set used by the renderer" default:"0"`
 	YOrigin  int     `arg:"--y-org" help:"minimum Y, top of focus" default:"0"`
 	Height   int     `arg:"--height" help:"height, vertical size of focus" default:"0"`
 	XOrigin  int     `arg:"--x-org" help:"minimum X, left edge of focus" default:"0"`
@@ -126,7 +126,7 @@ func ArgsToJson(c Cli) {
 	file, _ := json.MarshalIndent(c, "", " ")
 	fileName := fmt.Sprintf("%s.json", strings.Split(c.Path, ".")[0])
 
-	_ = ioutil.WriteFile(fileName, file, 0644)
+	_ = os.WriteFile(fileName, file, 0644)
 }
 
 // loadImage first checks if an image is being passed via standard in.
@@ -150,36 +150,6 @@ func loadImage(ps PathSpec) (img image.Image, err error) {
 	}
 
 	return img, nil
-}
-
-// loadImages should load a series of images into a buffer.
-// Returning buffer for consumption elsewhere should allow
-// video in terminal via these render functions.
-func loadImages() (imageBuff ImageBuff, err error) {
-	fs, _ := ioutil.ReadDir("./tmp")
-		
-	for _, file := range fs {
-		imgFile, err = os.Open(fmt.Sprintf("./tmp/%s", file.Name()))
-		//print(imgFile.Name())
-		if err != nil {
-			log.Fatalf("LOAD ERR: %s",err)
-		}
-		
-		defer imgFile.Close()
-		
-		img, _, err := image.Decode(imgFile)
-		
-		if err != nil {
-			log.Fatalf("DECODE ERR: %s",err)
-		}
-		// Scale image, then append to
-		img = ScaleImg(img, Args)
-		imageBuff = append(imageBuff, img)
-	}
-	
-	
-	//time.Sleep(4* time.Second)
-	return imageBuff, nil
 }
 
 // OutputBoundsOf consumes a Cli value and returns pixel width, height tuple
@@ -216,6 +186,8 @@ func avgPixel(img image.Image, x, y, w, h int) int {
 }
 
 // PrintImg is the stdout of the program, i.e. Sick GFX.
+// uses Charsets[charset] to determine character selection.
+// 
 func PrintImg(charset Charset, focusView FocusView, img image.Image) {
 	glyphs := Charsets[charset]
 
@@ -286,25 +258,55 @@ func PaletteTesting(charset Charset, focusView FocusView, img image.Image) {
 	}
 }
 
-func vidTesting(imgs ImageBuff, charset Charset) {
-	glyphs := Ramps[charset]
-		
-	scaleY := 1
-	
-	for _, img := range(imgs) {
-		
+// BufferImages runs asynchronously to load files into memory
+// Each file is sent into imageBuffer to be consumed elsewhere.
+func BufferImages(imageBuffer chan image.Image, fs []os.FileInfo) (err error) {
+
+	for _, file := range fs {
+		imgFile, err = os.Open(fmt.Sprintf("./tmp/%s", file.Name()))
+		//print(imgFile.Name())
+		if err != nil {
+			log.Fatalf("LOAD ERR: %s", err)
+		}
+
+		defer imgFile.Close()
+
+		img, _, err := image.Decode(imgFile)
+
+		if err != nil {
+			log.Fatalf("DECODE ERR: %s", err)
+		}
+		// Scale image, then append to
+		img = ScaleImg(img, Args)
+		imageBuffer <- img
+	}
+	close(imageBuffer)
+	return nil
+}
+
+// PrintFromBuff consumes the image.Image files sent into imageBuffer by BufferImages()
+// This function prints the buffer sequentially.
+// Essentially, this is lo-fi in-terminal video playback via UTF-8 / ASCII encoded pixels.
+// For now, use ffmpeg cli to generate frames from a video file.
+func PrintFromBuff(imageBuffer chan image.Image, charset Charset) (err error) {
+
+	for img := range imageBuffer {
+
+		glyphs := Ramps[charset]
+
+		scaleY := 1
+
 		focusView := Args.GetFocusView(img)
 		// img relative x, y pixel lower bounds
 		top, left := focusView.GetYOrigin(), focusView.GetXOrigin()
-	
+
 		// img relative x, y pixel upper bounds (right, top)
 		right := focusView.GetXOrigin() + focusView.GetWidth()
 		btm := focusView.GetYOrigin() + focusView.GetHeight()
 
-
 		// go row by row in the scaled image.Image and...
 		for y := top; y < btm; y += int(Args.Squash) {
-			
+
 			// print cells from left to right
 			for x := left; x < right; x += scaleY {
 				// get brightness of cell
@@ -320,46 +322,51 @@ func vidTesting(imgs ImageBuff, charset Charset) {
 			}
 			fmt.Println(Normalizer)
 		}
-		//time.Sleep(1 * time.Millisecond)
+
+		time.Sleep(24 * time.Millisecond)
 		//fmt.Print("\033[38D")
-		fmt.Print("\033[1920A")
+		fmt.Printf("\033[%sA", fmt.Sprint(btm))
 	}
-	
+	return nil
 }
 
 func main() {
 	arg.MustParse(&Args)
 	ArgsToJson(Args)
 
-	img, err := loadImages()
-	if err != nil {
-		log.Fatal(err)
-	}	
-	
-	switch {
-	case Args.Mode == "A":
-	vidTesting(img, Args.Charset)
-	}	
-}
-
-
-func main2() {
-	arg.MustParse(&Args)
-	ArgsToJson(Args)
-
-	img, err := loadImage(Args)
+	var fs, err = ioutil.ReadDir("./tmp")
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	img = ScaleImg(img, Args)
-	focusView := Args.GetFocusView(img)
+	var imageBuffer = make(chan image.Image, len(fs))
 
 	switch {
 	case Args.Mode == "A":
+		img, err := loadImage(Args)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		img = ScaleImg(img, Args)
+		focusView := Args.GetFocusView(img)
 		PrintImg(Args.Charset, focusView, img)
 
 	case Args.Mode == "B":
+		img, err := loadImage(Args)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		img = ScaleImg(img, Args)
+		focusView := Args.GetFocusView(img)
 		PaletteTesting(Args.Charset, focusView, img)
+
+	case Args.Mode == "C":
+		go BufferImages(imageBuffer, fs)
+
+		PrintFromBuff(imageBuffer, Args.Charset)
+
+		fmt.Print("-------CLEAN---------")
 	}
 }
