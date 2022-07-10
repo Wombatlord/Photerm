@@ -185,18 +185,24 @@ func avgPixel(img image.Image, x, y, w, h int) int {
 	return sum / cnt
 }
 
+func FocusArea(focusView FocusView) (top, left, right, btm int) {
+	// img relative x, y pixel lower bounds
+	top, left = focusView.GetYOrigin(), focusView.GetXOrigin()
+
+	// img relative x, y pixel upper bounds (right, top)
+	right = focusView.GetXOrigin() + focusView.GetWidth()
+	btm = focusView.GetYOrigin() + focusView.GetHeight()
+
+	return top, left, right, btm
+}
+
 // PrintImg is the stdout of the program, i.e. Sick GFX.
 // uses Charsets[charset] to determine character selection.
 // 
 func PrintImg(charset Charset, focusView FocusView, img image.Image) {
 	glyphs := Charsets[charset]
 
-	// img relative x, y pixel lower bounds
-	top, left := focusView.GetYOrigin(), focusView.GetXOrigin()
-
-	// img relative x, y pixel upper bounds (right, top)
-	right := focusView.GetXOrigin() + focusView.GetWidth()
-	btm := focusView.GetYOrigin() + focusView.GetHeight()
+	top, left, right, btm := FocusArea(focusView)
 
 	// go row by row in the scaled image.Image and...
 	for y := top; y < btm; y++ {
@@ -230,12 +236,7 @@ func PrintImg(charset Charset, focusView FocusView, img image.Image) {
 func PaletteTesting(charset Charset, focusView FocusView, img image.Image) {
 	glyphs := Ramps[charset]
 
-	// img relative x, y pixel lower bounds
-	top, left := focusView.GetYOrigin(), focusView.GetXOrigin()
-
-	// img relative x, y pixel upper bounds (right, top)
-	right := focusView.GetXOrigin() + focusView.GetWidth()
-	btm := focusView.GetYOrigin() + focusView.GetHeight()
+	top, left, right, btm := FocusArea(focusView)
 
 	scaleY := 1
 	// go row by row in the scaled image.Image and...
@@ -276,10 +277,11 @@ func BufferImages(imageBuffer chan image.Image, fs []os.FileInfo) (err error) {
 		if err != nil {
 			log.Fatalf("DECODE ERR: %s", err)
 		}
-		// Scale image, then append to
+		// Scale image, then read image.Image into channel.
 		img = ScaleImg(img, Args)
 		imageBuffer <- img
 	}
+	// Close the channel once all files have been read into it.
 	close(imageBuffer)
 	return nil
 }
@@ -289,21 +291,16 @@ func BufferImages(imageBuffer chan image.Image, fs []os.FileInfo) (err error) {
 // Essentially, this is lo-fi in-terminal video playback via UTF-8 / ASCII encoded pixels.
 // For now, use ffmpeg cli to generate frames from a video file.
 func PrintFromBuff(imageBuffer chan image.Image, charset Charset) (err error) {
-
+	
 	for img := range imageBuffer {
-
+		
 		glyphs := Ramps[charset]
-
+		
 		scaleY := 1
-
+		
 		focusView := Args.GetFocusView(img)
-		// img relative x, y pixel lower bounds
-		top, left := focusView.GetYOrigin(), focusView.GetXOrigin()
-
-		// img relative x, y pixel upper bounds (right, top)
-		right := focusView.GetXOrigin() + focusView.GetWidth()
-		btm := focusView.GetYOrigin() + focusView.GetHeight()
-
+		top, left, right, btm := FocusArea(focusView)
+		
 		// go row by row in the scaled image.Image and...
 		for y := top; y < btm; y += int(Args.Squash) {
 
@@ -323,7 +320,7 @@ func PrintFromBuff(imageBuffer chan image.Image, charset Charset) (err error) {
 			fmt.Println(Normalizer)
 		}
 
-		time.Sleep(24 * time.Millisecond)
+		time.Sleep(0 * time.Millisecond)
 		//fmt.Print("\033[38D")
 		fmt.Printf("\033[%sA", fmt.Sprint(btm))
 	}
@@ -333,38 +330,45 @@ func PrintFromBuff(imageBuffer chan image.Image, charset Charset) (err error) {
 func main() {
 	arg.MustParse(&Args)
 	ArgsToJson(Args)
-
-	var fs, err = ioutil.ReadDir("./tmp")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	var imageBuffer = make(chan image.Image, len(fs))
-
+	
 	switch {
 	case Args.Mode == "A":
 		img, err := loadImage(Args)
 		if err != nil {
 			log.Fatal(err)
 		}
-
+		
 		img = ScaleImg(img, Args)
 		focusView := Args.GetFocusView(img)
+		
+		//Render from 5 char array. UTF-8 Chars work. 
 		PrintImg(Args.Charset, focusView, img)
-
+		
 	case Args.Mode == "B":
 		img, err := loadImage(Args)
 		if err != nil {
 			log.Fatal(err)
 		}
-
+		
 		img = ScaleImg(img, Args)
 		focusView := Args.GetFocusView(img)
+		
+		// Render from string. ASCII only?
 		PaletteTesting(Args.Charset, focusView, img)
-
+		
 	case Args.Mode == "C":
+		fs, err := ioutil.ReadDir("./tmp")
+		if err != nil {
+			log.Fatal(err)
+		}
+		
+		imageBuffer := make(chan image.Image, len(fs))
+		
+		// load image files in a goroutine
+		// ensures playback is not blocked by io.
 		go BufferImages(imageBuffer, fs)
 
+		// Consumes image.Image from imageBuffer
 		PrintFromBuff(imageBuffer, Args.Charset)
 
 		fmt.Print("-------CLEAN---------")
