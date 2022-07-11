@@ -38,18 +38,18 @@ const (
 	Normal Charset = iota
 	TurboGFX
 	ASCIIFY
+	ASCIIFY2
 )
 
 // Charsets is the mapping of glyph to brightness levels
 // indexed by Charset Arg.
-var Charsets = [3][5]string{
+var Charsets = [4][]string{
 	Normal:   {"█", "█", "█", "█", "█"},
 	TurboGFX: {" ", "░", "▒", "▓", "█"},
 	ASCIIFY:  {" ", ".", "*", "$", "@"},
-}
-
-var Ramps = []string{
-	Normal: "$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,^`'. ",
+	ASCIIFY2: {"$", "@", "B", "%", "8", "&", "W", "M", "#", "*", "o", "a", "h", "k", "b", "d", "p", "q", "w", "m", "Z", "O", "0", "Q", "L", "C", "J",
+		"U", "Y", "X", "z", "c", "v", "u", "n", "x", "r", "j", "f", "t", "/", "\\", "|", "(", ")", "1", "{", "}", "[", "]", "?", "-", "_", "+", "~", "<", ">",
+		"i", "!", "l", "I", ";", ":", ",", "^", "`", "'", ".", " ", "\"", ","},
 }
 
 const NotSet = 0
@@ -176,7 +176,7 @@ func FocusArea(focusView FocusView) (top, left, right, btm int) {
 func BufferImages(imageBuffer chan image.Image, fs []os.DirEntry) (err error) {
 
 	for _, file := range fs {
-		imgFile, err = os.Open(fmt.Sprintf("%s%s", Args.GetPath(), file.Name()))
+		imgFile, err = os.Open(fmt.Sprintf("%s%s", Args.GetPath(),file.Name()))
 
 		if err != nil {
 			log.Fatalf("LOAD ERR: %s", err)
@@ -198,14 +198,35 @@ func BufferImages(imageBuffer chan image.Image, fs []os.DirEntry) (err error) {
 	return nil
 }
 
+// Buffer a single image for non-sequential display
+func BufferImage(imageBuffer chan image.Image) (err error) {
+	imgFile, err = os.Open(Args.GetPath())
+
+	if err != nil {
+		log.Fatalf("LOAD ERR: %s", err)
+	}
+
+	defer imgFile.Close()
+
+	img, _, err := image.Decode(imgFile)
+
+	if err != nil {
+		log.Fatalf("DECODE ERR: %s", err)
+	}
+	// Scale image, then read image.Image into channel.
+	img = ScaleImg(img, Args)
+	imageBuffer <- img
+	close(imageBuffer)
+	return nil
+}
+
 // PrintFromBuff consumes the image.Image files sent into imageBuffer by BufferImages()
 // This function prints the buffer sequentially.
 // Essentially, this is lo-fi in-terminal video playback via UTF-8 / ASCII encoded pixels.
 // For now, use ffmpeg cli to generate frames from a video file.
 func PrintFromBuff(imageBuffer chan image.Image, charset Charset) (err error) {
 
-	glyphsOne := Ramps[charset]
-	glyphsTwo := Charsets[charset]
+	glyphs := Charsets[charset]
 
 	for img := range imageBuffer {
 
@@ -228,21 +249,15 @@ func PrintFromBuff(imageBuffer chan image.Image, charset Charset) (err error) {
 				// get the colour and glyph corresponding to the brightness
 				ink := RGB(rgb.R, rgb.G, rgb.B, Foreground)
 
-				// which character set to use
-				switch Args.Mode {
-				case "A":
-					fmt.Print(ink + string(glyphsOne[len(glyphsOne)*c/65536]))
-
-				case "B":
-					fmt.Print(ink + string(glyphsTwo[len(glyphsTwo)*c/65536]))
-				}
+				fmt.Print(ink + string(glyphs[len(glyphs)*c/65536]))
 			}
 			fmt.Println(Normalizer)
 		}
+
 		if len(imageBuffer) == 0 {
 			fmt.Println(Normalizer) // leave the final frame in the terminal. Allows for single image render.
 		} else {
-			fmt.Printf("\033[%sA", fmt.Sprint(btm))
+			fmt.Printf("\033[%sA", fmt.Sprint(btm)) // reset cursor to original position before drawing next image.
 		}
 	}
 	return nil
@@ -252,17 +267,31 @@ func main() {
 	arg.MustParse(&Args)
 	ArgsToJson(Args)
 
-	fs, err := os.ReadDir("./tmp")
-	if err != nil {
-		log.Fatal(err)
+	switch Args.Mode {
+
+	case "A":
+		// Provide a full path to Mode A for individual image display.
+		
+		imageBuffer := make(chan image.Image, 1)
+		go BufferImage(imageBuffer)
+		PrintFromBuff(imageBuffer, Args.Charset)
+
+	case "B":
+		// Provide a DIRECTORY to Mode B for sequential play of all images inside.
+
+		fs, err := os.ReadDir(Args.GetPath())
+		if err != nil {
+			log.Fatal(err)
+		}
+		imageBuffer := make(chan image.Image, len(fs))
+
+		// load image files in a goroutine
+		// ensures playback is not blocked by io.
+		go BufferImages(imageBuffer, fs)
+
+		// Consumes image.Image from imageBuffer
+		// Prints each to the terminal.
+		PrintFromBuff(imageBuffer, Args.Charset)
 	}
 
-	imageBuffer := make(chan image.Image, len(fs))
-
-	// load image files in a goroutine
-	// ensures playback is not blocked by io.
-	go BufferImages(imageBuffer, fs)
-
-	// Consumes image.Image from imageBuffer
-	PrintFromBuff(imageBuffer, Args.Charset)
 }
