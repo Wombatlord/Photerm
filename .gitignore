@@ -2,4 +2,6 @@
 *.png
 *.jpg
 *.json
+*.mp4
+/tmp
 /.obsidian

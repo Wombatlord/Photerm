@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"image"
 	"image/color"
-
 	_ "image/jpeg"
 	_ "image/png"
 	"io/ioutil"
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"wombatlord/imagestuff/src/rotato"
 	"wombatlord/imagestuff/src/util"
@@ -21,6 +21,7 @@ import (
 )
 
 type Painter string
+type ImageBuff []image.Image
 
 const (
 	Foreground Painter = "\u001b[38;"
@@ -61,7 +62,7 @@ type Cli struct {
 	Squash   float64 `arg:"-w, --wide-boyz" help:"How wide you want it guv? (Widens the image)" default:"1.0"`
 	StdInput bool    `arg:"-i, --in" help:"read from stdin"`
 	Mode     string  `arg:"-m, --mode" help:"mode selection determines renderer" default:"A"`
-	Charset  Charset `arg:"-p, --palette" help:"palette selection determines the character set used by the renderer" default:"0"`
+	Charset  Charset `arg:"-c, --Charset" help:"Charset selection determines the character set used by the renderer" default:"0"`
 	YOrigin  int     `arg:"--y-org" help:"minimum Y, top of focus" default:"0"`
 	Height   int     `arg:"--height" help:"height, vertical size of focus" default:"0"`
 	XOrigin  int     `arg:"--x-org" help:"minimum X, left edge of focus" default:"0"`
@@ -125,7 +126,7 @@ func ArgsToJson(c Cli) {
 	file, _ := json.MarshalIndent(c, "", " ")
 	fileName := fmt.Sprintf("%s.json", strings.Split(c.Path, ".")[0])
 
-	_ = ioutil.WriteFile(fileName, file, 0644)
+	_ = os.WriteFile(fileName, file, 0644)
 }
 
 // loadImage first checks if an image is being passed via standard in.
@@ -184,16 +185,24 @@ func avgPixel(img image.Image, x, y, w, h int) int {
 	return sum / cnt
 }
 
+func FocusArea(focusView FocusView) (top, left, right, btm int) {
+	// img relative x, y pixel lower bounds
+	top, left = focusView.GetYOrigin(), focusView.GetXOrigin()
+
+	// img relative x, y pixel upper bounds (right, top)
+	right = focusView.GetXOrigin() + focusView.GetWidth()
+	btm = focusView.GetYOrigin() + focusView.GetHeight()
+
+	return top, left, right, btm
+}
+
 // PrintImg is the stdout of the program, i.e. Sick GFX.
+// uses Charsets[charset] to determine character selection.
+// 
 func PrintImg(charset Charset, focusView FocusView, img image.Image) {
 	glyphs := Charsets[charset]
 
-	// img relative x, y pixel lower bounds
-	top, left := focusView.GetYOrigin(), focusView.GetXOrigin()
-
-	// img relative x, y pixel upper bounds (right, top)
-	right := focusView.GetXOrigin() + focusView.GetWidth()
-	btm := focusView.GetYOrigin() + focusView.GetHeight()
+	top, left, right, btm := FocusArea(focusView)
 
 	// go row by row in the scaled image.Image and...
 	for y := top; y < btm; y++ {
@@ -224,52 +233,19 @@ func PrintImg(charset Charset, focusView FocusView, img image.Image) {
 	}
 }
 
-func tdPalette(img image.Image, focusView FocusView, sf ScaleFactors) {
-	// pal := make([]byte, 256)
-
-	// // setup a palette mapping
-	// // palette: ABCDEFGHIJKLMNOP
-	// var chunkIdx byte = 0
-	// for len(pal) < 256 {
-	// 	//chunk := bytes.Repeat([]byte{0x41+chunkIdx}, 16)
-	// 	for i := 0; i < 16; i++ {
-	// 		chunkOffset := int(chunkIdx)*16
-
-	// 		idx := chunkOffset + i
-	// 		if idx > 255 {
-	// 			log.Fatalln("too big: ", idx)
-	// 		}
-	// 		pal[idx] = 0x41+chunkIdx
-	// 	}
-	// 	chunkIdx++
-	// }
-
-	// fmt.Printf("palette length: %d\n", len(pal))
-	// if len(pal) > 256 {
-	// 	log.Fatalf("Palette was too long!\n")
-	// }
-	// fmt.Println(pal)
-}
-
 func PaletteTesting(charset Charset, focusView FocusView, img image.Image) {
 	glyphs := Ramps[charset]
 
-	// img relative x, y pixel lower bounds
-	top, left := focusView.GetYOrigin(), focusView.GetXOrigin()
-
-	// img relative x, y pixel upper bounds (right, top)
-	right := focusView.GetXOrigin() + focusView.GetWidth()
-	btm := focusView.GetYOrigin() + focusView.GetHeight()
+	top, left, right, btm := FocusArea(focusView)
 
 	scaleY := 1
-
 	// go row by row in the scaled image.Image and...
 	for y := top; y < btm; y += int(Args.Squash) {
 
 		// print cells from left to right
 		for x := left; x < right; x += scaleY {
 			// get brightness of cell
-			c := avgPixel(img, x, y, int(Args.Squash), scaleY)
+			c := color.GrayModel.Convert(img.At(x, y)).(color.Gray)
 
 			// get the rgba colour
 			rgb := rotato.RotateHue(color.RGBAModel.Convert(img.At(x, y)).(color.RGBA), Args.HueAngle)
@@ -277,29 +253,124 @@ func PaletteTesting(charset Charset, focusView FocusView, img image.Image) {
 			// get the colour and glyph corresponding to the brightness
 			ink := RGB(rgb.R, rgb.G, rgb.B, Foreground)
 
-			fmt.Print(ink + string(glyphs[len(glyphs)*c/65536]))
+			fmt.Print(ink + string(glyphs[len(glyphs)*int(c.Y)/255]))
 		}
 		fmt.Println()
 	}
 }
 
+// BufferImages runs asynchronously to load files into memory
+// Each file is sent into imageBuffer to be consumed elsewhere.
+func BufferImages(imageBuffer chan image.Image, fs []os.FileInfo) (err error) {
+
+	for _, file := range fs {
+		imgFile, err = os.Open(fmt.Sprintf("./tmp/%s", file.Name()))
+		//print(imgFile.Name())
+		if err != nil {
+			log.Fatalf("LOAD ERR: %s", err)
+		}
+
+		defer imgFile.Close()
+
+		img, _, err := image.Decode(imgFile)
+
+		if err != nil {
+			log.Fatalf("DECODE ERR: %s", err)
+		}
+		// Scale image, then read image.Image into channel.
+		img = ScaleImg(img, Args)
+		imageBuffer <- img
+	}
+	// Close the channel once all files have been read into it.
+	close(imageBuffer)
+	return nil
+}
+
+// PrintFromBuff consumes the image.Image files sent into imageBuffer by BufferImages()
+// This function prints the buffer sequentially.
+// Essentially, this is lo-fi in-terminal video playback via UTF-8 / ASCII encoded pixels.
+// For now, use ffmpeg cli to generate frames from a video file.
+func PrintFromBuff(imageBuffer chan image.Image, charset Charset) (err error) {
+	
+	for img := range imageBuffer {
+		
+		glyphs := Ramps[charset]
+		
+		scaleY := 1
+		
+		focusView := Args.GetFocusView(img)
+		top, left, right, btm := FocusArea(focusView)
+		
+		// go row by row in the scaled image.Image and...
+		for y := top; y < btm; y += int(Args.Squash) {
+
+			// print cells from left to right
+			for x := left; x < right; x += scaleY {
+				// get brightness of cell
+				c := avgPixel(img, x, y, int(Args.Squash), scaleY)
+
+				// get the rgba colour
+				rgb := rotato.RotateHue(color.RGBAModel.Convert(img.At(x, y)).(color.RGBA), Args.HueAngle)
+
+				// get the colour and glyph corresponding to the brightness
+				ink := RGB(rgb.R, rgb.G, rgb.B, Foreground)
+
+				fmt.Print(ink + string(glyphs[len(glyphs)*c/65536]))
+			}
+			fmt.Println(Normalizer)
+		}
+
+		time.Sleep(0 * time.Millisecond)
+		//fmt.Print("\033[38D")
+		fmt.Printf("\033[%sA", fmt.Sprint(btm))
+	}
+	return nil
+}
+
 func main() {
 	arg.MustParse(&Args)
 	ArgsToJson(Args)
-
-	img, err := loadImage(Args)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	img = ScaleImg(img, Args)
-	focusView := Args.GetFocusView(img)
-
+	
 	switch {
 	case Args.Mode == "A":
+		img, err := loadImage(Args)
+		if err != nil {
+			log.Fatal(err)
+		}
+		
+		img = ScaleImg(img, Args)
+		focusView := Args.GetFocusView(img)
+		
+		//Render from 5 char array. UTF-8 Chars work. 
 		PrintImg(Args.Charset, focusView, img)
-
+		
 	case Args.Mode == "B":
+		img, err := loadImage(Args)
+		if err != nil {
+			log.Fatal(err)
+		}
+		
+		img = ScaleImg(img, Args)
+		focusView := Args.GetFocusView(img)
+		
+		// Render from string. ASCII only?
 		PaletteTesting(Args.Charset, focusView, img)
+		
+	case Args.Mode == "C":
+		fs, err := ioutil.ReadDir("./tmp")
+		if err != nil {
+			log.Fatal(err)
+		}
+		
+		imageBuffer := make(chan image.Image, len(fs))
+		
+		// load image files in a goroutine
+		// ensures playback is not blocked by io.
+		go BufferImages(imageBuffer, fs)
+
+		// Consumes image.Image from imageBuffer
+		PrintFromBuff(imageBuffer, Args.Charset)
+
+		fmt.Print("-------CLEAN---------")
 	}
 }
