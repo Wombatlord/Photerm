@@ -144,16 +144,16 @@ func ScaleImg(img image.Image, sf ScaleFactors) image.Image {
 	return resize.Resize(w, h, img, resize.Lanczos2)
 }
 
-func grayscale(c color.Color) int {
+func Grayscale(c color.Color) int {
 	r, g, b, _ := c.RGBA()
 	return int(0.299*float64(r) + 0.587*float64(g) + 0.114*float64(b))
 }
 
-func avgPixel(img image.Image, x, y, w, h int) int {
+func AvgPixel(img image.Image, x, y, w, h int) int {
 	cnt, sum, max := 0, 0, img.Bounds().Max
 	for i := x; i < x+w && i < max.X; i++ {
 		for j := y; j < y+h && j < max.Y; j++ {
-			sum += grayscale(img.At(i, j))
+			sum += Grayscale(img.At(i, j))
 			cnt++
 		}
 	}
@@ -176,7 +176,14 @@ func FocusArea(focusView FocusView) (top, left, right, btm int) {
 func BufferImages(imageBuffer chan image.Image, fs []os.DirEntry) (err error) {
 
 	for _, file := range fs {
-		imgFile, err = os.Open(fmt.Sprintf("%s%s", Args.GetPath(),file.Name()))
+
+		// Ignore serialised args file and proceed with iteration
+		ext := strings.Split(file.Name(), ".")[1]
+		if ext == "json" {
+			continue
+		}
+
+		imgFile, err = os.Open(fmt.Sprintf("%s%s", Args.GetPath(), file.Name()))
 
 		if err != nil {
 			log.Fatalf("LOAD ERR: %s", err)
@@ -241,7 +248,7 @@ func PrintFromBuff(imageBuffer chan image.Image, charset Charset) (err error) {
 			// print cells from left to right
 			for x := left; x < right; x += scaleY {
 				// get brightness of cell
-				c := avgPixel(img, x, y, int(Args.Squash), scaleY)
+				c := AvgPixel(img, x, y, int(Args.Squash), scaleY)
 
 				// get the rgba colour
 				rgb := rotato.RotateHue(color.RGBAModel.Convert(img.At(x, y)).(color.RGBA), Args.HueAngle)
@@ -271,7 +278,7 @@ func main() {
 
 	case "A":
 		// Provide a full path to Mode A for individual image display.
-		
+
 		imageBuffer := make(chan image.Image, 1)
 		go BufferImage(imageBuffer)
 		PrintFromBuff(imageBuffer, Args.Charset)
