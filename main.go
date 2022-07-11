@@ -7,11 +7,9 @@ import (
 	"image/color"
 	_ "image/jpeg"
 	_ "image/png"
-	"io/ioutil"
 	"log"
 	"os"
 	"strings"
-	"time"
 
 	"wombatlord/imagestuff/src/rotato"
 	"wombatlord/imagestuff/src/util"
@@ -129,29 +127,6 @@ func ArgsToJson(c Cli) {
 	_ = os.WriteFile(fileName, file, 0644)
 }
 
-// loadImage first checks if an image is being passed via standard in.
-// For example, curling an image and passing it through a pipe.
-// If no file is passed this way, then os.Open will load the image
-// indicated by Args.Path.
-func loadImage(ps PathSpec) (img image.Image, err error) {
-	if ps.GetStdIn() {
-		imgFile = os.Stdin
-	} else {
-		imgFile, err = os.Open(ps.GetPath())
-		if err != nil {
-			return nil, err
-		}
-	}
-	defer imgFile.Close()
-
-	img, _, err = image.Decode(imgFile)
-	if err != nil {
-		return nil, err
-	}
-
-	return img, nil
-}
-
 // OutputBoundsOf consumes a Cli value and returns pixel width, height tuple
 func OutputDimsOf(scales ScaleFactors, img image.Image) (w, h uint) {
 	height := float64(uint(img.Bounds().Max.Y))
@@ -196,76 +171,13 @@ func FocusArea(focusView FocusView) (top, left, right, btm int) {
 	return top, left, right, btm
 }
 
-// PrintImg is the stdout of the program, i.e. Sick GFX.
-// uses Charsets[charset] to determine character selection.
-// 
-func PrintImg(charset Charset, focusView FocusView, img image.Image) {
-	glyphs := Charsets[charset]
-
-	top, left, right, btm := FocusArea(focusView)
-
-	// go row by row in the scaled image.Image and...
-	for y := top; y < btm; y++ {
-
-		// print cells from left to right
-		for x := left; x < right; x++ {
-
-			// get brightness of cell
-			c := color.GrayModel.Convert(img.At(x, y)).(color.Gray)
-
-			level := c.Y / 51 // 51 * 5 = 255
-			if level == 5 {   // clipping
-				level--
-			}
-
-			// get the rgba colour
-			rgb := rotato.RotateHue(color.RGBAModel.Convert(img.At(x, y)).(color.RGBA), Args.HueAngle)
-
-			// get the colour and glyph corresponding to the brightness
-			ink := RGB(rgb.R, rgb.G, rgb.B, Foreground)
-			glyph := glyphs[level]
-
-			// and print the cell
-			fmt.Print(ink + glyph)
-		}
-
-		fmt.Println(Normalizer)
-	}
-}
-
-func PaletteTesting(charset Charset, focusView FocusView, img image.Image) {
-	glyphs := Ramps[charset]
-
-	top, left, right, btm := FocusArea(focusView)
-
-	scaleY := 1
-	// go row by row in the scaled image.Image and...
-	for y := top; y < btm; y += int(Args.Squash) {
-
-		// print cells from left to right
-		for x := left; x < right; x += scaleY {
-			// get brightness of cell
-			c := color.GrayModel.Convert(img.At(x, y)).(color.Gray)
-
-			// get the rgba colour
-			rgb := rotato.RotateHue(color.RGBAModel.Convert(img.At(x, y)).(color.RGBA), Args.HueAngle)
-
-			// get the colour and glyph corresponding to the brightness
-			ink := RGB(rgb.R, rgb.G, rgb.B, Foreground)
-
-			fmt.Print(ink + string(glyphs[len(glyphs)*int(c.Y)/255]))
-		}
-		fmt.Println()
-	}
-}
-
 // BufferImages runs asynchronously to load files into memory
 // Each file is sent into imageBuffer to be consumed elsewhere.
-func BufferImages(imageBuffer chan image.Image, fs []os.FileInfo) (err error) {
+func BufferImages(imageBuffer chan image.Image, fs []os.DirEntry) (err error) {
 
 	for _, file := range fs {
-		imgFile, err = os.Open(fmt.Sprintf("./tmp/%s", file.Name()))
-		//print(imgFile.Name())
+		imgFile, err = os.Open(fmt.Sprintf("%s%s", Args.GetPath(), file.Name()))
+
 		if err != nil {
 			log.Fatalf("LOAD ERR: %s", err)
 		}
@@ -291,16 +203,17 @@ func BufferImages(imageBuffer chan image.Image, fs []os.FileInfo) (err error) {
 // Essentially, this is lo-fi in-terminal video playback via UTF-8 / ASCII encoded pixels.
 // For now, use ffmpeg cli to generate frames from a video file.
 func PrintFromBuff(imageBuffer chan image.Image, charset Charset) (err error) {
-	
+
+	glyphsOne := Ramps[charset]
+	glyphsTwo := Charsets[charset]
+
 	for img := range imageBuffer {
-		
-		glyphs := Ramps[charset]
-		
+
 		scaleY := 1
-		
+
 		focusView := Args.GetFocusView(img)
 		top, left, right, btm := FocusArea(focusView)
-		
+
 		// go row by row in the scaled image.Image and...
 		for y := top; y < btm; y += int(Args.Squash) {
 
@@ -315,14 +228,22 @@ func PrintFromBuff(imageBuffer chan image.Image, charset Charset) (err error) {
 				// get the colour and glyph corresponding to the brightness
 				ink := RGB(rgb.R, rgb.G, rgb.B, Foreground)
 
-				fmt.Print(ink + string(glyphs[len(glyphs)*c/65536]))
+				// which character set to use
+				switch Args.Mode {
+				case "A":
+					fmt.Print(ink + string(glyphsOne[len(glyphsOne)*c/65536]))
+
+				case "B":
+					fmt.Print(ink + string(glyphsTwo[len(glyphsTwo)*c/65536]))
+				}
 			}
 			fmt.Println(Normalizer)
 		}
-
-		time.Sleep(0 * time.Millisecond)
-		//fmt.Print("\033[38D")
-		fmt.Printf("\033[%sA", fmt.Sprint(btm))
+		if len(imageBuffer) == 0 {
+			fmt.Println(Normalizer) // leave the final frame in the terminal. Allows for single image render.
+		} else {
+			fmt.Printf("\033[%sA", fmt.Sprint(btm))
+		}
 	}
 	return nil
 }
@@ -330,47 +251,18 @@ func PrintFromBuff(imageBuffer chan image.Image, charset Charset) (err error) {
 func main() {
 	arg.MustParse(&Args)
 	ArgsToJson(Args)
-	
-	switch {
-	case Args.Mode == "A":
-		img, err := loadImage(Args)
-		if err != nil {
-			log.Fatal(err)
-		}
-		
-		img = ScaleImg(img, Args)
-		focusView := Args.GetFocusView(img)
-		
-		//Render from 5 char array. UTF-8 Chars work. 
-		PrintImg(Args.Charset, focusView, img)
-		
-	case Args.Mode == "B":
-		img, err := loadImage(Args)
-		if err != nil {
-			log.Fatal(err)
-		}
-		
-		img = ScaleImg(img, Args)
-		focusView := Args.GetFocusView(img)
-		
-		// Render from string. ASCII only?
-		PaletteTesting(Args.Charset, focusView, img)
-		
-	case Args.Mode == "C":
-		fs, err := ioutil.ReadDir("./tmp")
-		if err != nil {
-			log.Fatal(err)
-		}
-		
-		imageBuffer := make(chan image.Image, len(fs))
-		
-		// load image files in a goroutine
-		// ensures playback is not blocked by io.
-		go BufferImages(imageBuffer, fs)
 
-		// Consumes image.Image from imageBuffer
-		PrintFromBuff(imageBuffer, Args.Charset)
-
-		fmt.Print("-------CLEAN---------")
+	fs, err := os.ReadDir("./tmp")
+	if err != nil {
+		log.Fatal(err)
 	}
+
+	imageBuffer := make(chan image.Image, len(fs))
+
+	// load image files in a goroutine
+	// ensures playback is not blocked by io.
+	go BufferImages(imageBuffer, fs)
+
+	// Consumes image.Image from imageBuffer
+	PrintFromBuff(imageBuffer, Args.Charset)
 }
