@@ -6,6 +6,7 @@ import (
 	"image"
 	"wombatlord/imagestuff/src/photerm"
 
+	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
 	"io/ioutil"
@@ -116,14 +117,15 @@ func loadImage(ps photerm.PathSpec) (img image.Image, err error) {
 	if ps.GetStdIn() {
 		imgFile = os.Stdin
 	} else {
+		log.Println(ps.GetPath())
 		imgFile, err = os.Open(ps.GetPath())
 		if err != nil {
 			return nil, err
 		}
 	}
-	defer util.Try(imgFile.Close())
 
 	img, _, err = image.Decode(imgFile)
+	util.Try(imgFile.Close())
 	if err != nil {
 		return nil, err
 	}
@@ -140,6 +142,8 @@ func BufferImages(dirPath string, sf photerm.ScaleFactors) <-chan image.Image {
 	}
 	work := func(imageBuffer chan<- image.Image) {
 		for _, fileInfo := range files {
+            if !strings.HasSuffix(fileInfo.Name(), ".jpg") { continue }
+
 			file, err := os.Open(fmt.Sprintf("./tmp/%s", fileInfo.Name()))
 			if err != nil {
 				log.Fatalf("LOAD ERR: %s", err)
@@ -170,7 +174,7 @@ func BufferImages(dirPath string, sf photerm.ScaleFactors) <-chan image.Image {
 
 func main() {
 	arg.MustParse(&Args)
-	ArgsToJson(Args)
+	// ArgsToJson(Args)
 
 	img, err := loadImage(&Args)
 	if err != nil {

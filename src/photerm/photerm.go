@@ -5,6 +5,8 @@ import (
 	"github.com/nfnt/resize"
 	"image"
 	"image/color"
+	_ "image/jpeg"
+	_ "image/png"
 	"io"
 	"log"
 	"strconv"
