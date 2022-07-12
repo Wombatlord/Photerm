@@ -221,7 +221,6 @@ type GlyphPrint struct{
     Img image.Image
     Chars PaletteMap
     Cli Cli
-    YStep int
 }
 
 // ColorModel is just here to fill out the Printout interface
@@ -303,7 +302,7 @@ func (g *GlyphPrint) SetPalette(p string) {
 // PrintRegion actually prints out the region to whatever output it's given
 func (g *GlyphPrint) PrintRegion(writer io.Writer, region Region) {
 	// go row by row in the scaled image.Image and...
-	for y := region.Top; y < region.Btm; y += g.YStep  {
+	for y := region.Top; y < region.Btm; y ++  {
 		// then cell by cell...
 		for x := region.Left; x < region.Right; x ++ {
             cell := g.At(x, y)
@@ -324,7 +323,7 @@ func main() {
 
 	img = ScaleImg(img, &Args)
 	focusView := Args.GetFocusView(img)
-    printOut := &GlyphPrint{Img: img, Cli: Args, YStep: 1}
+    printOut := &GlyphPrint{Img: img, Cli: Args}
     charset := "#"
 	switch Args.Mode {
 	case "A":
