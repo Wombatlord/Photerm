@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"io"
+	"strconv"
 
 	_ "image/jpeg"
 	_ "image/png"
@@ -20,14 +22,20 @@ import (
 	"github.com/nfnt/resize"
 )
 
+// Opt is for optional values
+type Opt[T any] map[bool]T
+
 type Painter string
 
 const (
-	Foreground Painter = "\u001b[38;"
+    NoPaint    Painter = ""
+	Foreground         = "\u001b[38;"
 	Background         = "\u001b[48;"
     Bold               = "\u001b[1m"
 	Normalizer         = "\u001b[0m"
 )
+
+func (p Painter) Apply(cells ...rune) Painter { return Painter(fmt.Sprint(p, string(cells))) }
 
 // RGB paints the string with a true color rgb painter
 func RGB(r, g, b byte, p Painter) string {
@@ -47,11 +55,26 @@ const (
 var Charsets = [3][5]string{
 	Normal:   {"█", "█", "█", "█", "█"},
 	TurboGFX: {" ", "░", "▒", "▓", "█"},
-	ASCIIFY:  {" ", ".", "*", "$", "@"},
+	ASCIIFY:  {" ", "∙", "*", "$", "@"},
 }
 
 var Ramps = []string{
 	Normal: "$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,^`'. ",
+}
+
+type RGBSpec string
+
+func (r RGBSpec) RGBA() color.RGBA {
+    rgbs := strings.SplitN(string(r), ":", 3)
+    rgb := [3]uint8{}
+    for i := range rgb {
+        c, err := strconv.Atoi(rgbs[i])
+        if err != nil {
+            log.Fatal(err)
+        }
+        rgb[i] = uint8(c)
+    }
+    return color.RGBA{rgb[0], rgb[1], rgb[2], 255}
 }
 
 const NotSet = 0
@@ -70,17 +93,27 @@ type Cli struct {
 	HueAngle float32 `arg:"--hue" help:"hue rotation angle in radians" default:"0.0"`
     Bold     bool    `arg:"--bold" help:"Render the glyphs in bold" default:"true"`
     CustomPalette string `arg:"--custom" help:"Supply a string of characters to be used to indicate brightness" default:"#"`
+    BG RGBSpec `arg:"--bg" help:"Set the background RGB as "`
 }
 
-func (c Cli) GetPath() string    { return c.Path }
-func (c Cli) GetStdIn() bool     { return c.StdInput }
-func (c Cli) GetScale() float64  { return c.Scale }
-func (c Cli) GetSquash() float64 { return c.Squash }
-func (c Cli) GetYOrigin() int    { return c.YOrigin }
-func (c Cli) GetHeight() int     { return c.Height }
-func (c Cli) GetXOrigin() int    { return c.XOrigin }
-func (c Cli) GetWidth() int      { return c.Width }
-func (c Cli) GetCustomPalette() string { return c.CustomPalette }
+func (c *Cli) GetPath() string    { return c.Path }
+func (c *Cli) GetStdIn() bool     { return c.StdInput }
+func (c *Cli) GetScale() float64  { return c.Scale }
+func (c *Cli) GetSquash() float64 { return c.Squash }
+func (c *Cli) GetYOrigin() int    { return c.YOrigin }
+func (c *Cli) GetHeight() int     { return c.Height }
+func (c *Cli) GetXOrigin() int    { return c.XOrigin }
+func (c *Cli) GetWidth() int      { return c.Width }
+func (c *Cli) GetCustomPalette() string { return c.CustomPalette }
+func (c *Cli) GetHueAngle() string { return c.CustomPalette }
+func (c *Cli) GetRegion() Region {
+    return Region{
+        Left: c.GetXOrigin(), 
+        Top: c.GetYOrigin(), 
+        Right: c.GetXOrigin() + c.GetWidth(), 
+        Btm: c.GetYOrigin() + c.GetHeight(),
+    }
+}
 
 func (c *Cli) GetFocusView(img image.Image) FocusView {
 	// set defaults as dynamic image size
@@ -107,6 +140,7 @@ type FocusView interface {
 	GetHeight() int
 	GetXOrigin() int
 	GetWidth() int
+    GetRegion() Region
 }
 
 type ScaleFactors interface {
@@ -169,151 +203,113 @@ func OutputDimsOf(scales ScaleFactors, img image.Image) (w, h uint) {
 // ScaleImg does global scale and makes boyz wide
 func ScaleImg(img image.Image, sf ScaleFactors) image.Image {
 	w, h := OutputDimsOf(sf, img)
-	return resize.Resize(w, h, img, resize.Lanczos2)
+	return resize.Resize(w, h, img, resize.Bicubic)
 }
 
-func grayscale(c color.Color) int {
-	r, g, b, _ := c.RGBA()
-	return int(0.299*float64(r) + 0.587*float64(g) + 0.114*float64(b))
+// Printout is an interface designed to mimic the parts of the image.Image that
+// are applicable to a text based printout of an image. Notable differences are the
+// return value of At is a CellSpec.
+type Printout interface {
+    ColorModel() color.Model
+    Bounds() image.Rectangle
+    At(x, y int) CellSpec
 }
 
-func avgPixel(img image.Image, x, y, w, h int) int {
-	cnt, sum, max := 0, 0, img.Bounds().Max
-	for i := x; i < x+w && i < max.X; i++ {
-		for j := y; j < y+h && j < max.Y; j++ {
-			sum += grayscale(img.At(i, j))
-			cnt++
-		}
-	}
-	return sum / cnt
+// GlyphPrint implements Printout and depends on the image.Image, the PaletteMap and
+// the command line args
+type GlyphPrint struct{
+    Img image.Image
+    Chars PaletteMap
+    Cli Cli
+    YStep int
 }
 
-// PrintImg is the stdout of the program, i.e. Sick GFX.
-func PrintImg(charset Charset, focusView FocusView, img image.Image) {
-	glyphs := Charsets[charset]
+// ColorModel is just here to fill out the Printout interface
+func (g *GlyphPrint) ColorModel() color.Model {
+    return color.RGBAModel
+}
 
-	// img relative x, y pixel lower bounds
-	top, left := focusView.GetYOrigin(), focusView.GetXOrigin()
+// Chroma is where all the colour transformation logic goes
+func (g *GlyphPrint) Chroma(c color.Color) (string, color.RGBA) {
+    fg, rgbFg := g.FGChroma(c)
+    bg := g.BGChroma(c)
+    return bg + fg, rgbFg
+}
 
-	// img relative x, y pixel upper bounds (right, top)
-	right := focusView.GetXOrigin() + focusView.GetWidth()
-	btm := focusView.GetYOrigin() + focusView.GetHeight()
+func (g *GlyphPrint) FGChroma(c color.Color) (string, color.RGBA) {
+    rgbOut := rotato.RotateHue(color.RGBAModel.Convert(c).(color.RGBA), g.Cli.HueAngle)
+    return  RGB(rgbOut.R, rgbOut.G, rgbOut.B, Foreground), rgbOut
+}
 
+func (g *GlyphPrint) BGChroma(c color.Color) string {
+    painter := string(NoPaint)
+    if g.Cli.BG != "" {
+        rgb := g.Cli.BG.RGBA()
+        painter += RGB(rgb.R, rgb.G, rgb.B, Background)
+    }
+    return painter
+}
+
+// Typeset is where the printable glyph is chosen
+func (g *GlyphPrint) Typeset(c color.Color) string {
+     glyphIdx := color.GrayModel.Convert(c).(color.Gray).Y
+     return string(g.Chars[glyphIdx])
+}
+
+func (g *GlyphPrint) At(x, y int) CellSpec {
+    // set up display attributes like bold or italics
+    displayAttributes := Opt[Painter]{true: Bold}[g.Cli.Bold]
+    
+    // derive the cell
+    pix := g.Img.At(x, y)
+    
+    // Create the painter
+    painter, rgbOut := g.Chroma(pix) 
+
+    // select the printable glyph
+    glyph := g.Typeset(pix) 
+    
+    // return the CellSpec 
+    return CellSpec{string(displayAttributes), string(painter), glyph, rgbOut}
+}
+
+// PaletteMap is a conveinient alias for a length 256 rune array
+type PaletteMap [256]rune
+type Region struct {Left, Top, Right, Btm int}
+
+// CellSpec is the terminal printout eqivalent of a pixel, however it has the extra
+// parameter of the text to be displayed in the terminal
+type CellSpec struct { Display, Ink, Glyph string; rgba color.RGBA }
+
+// String generates the terminal output
+func (c CellSpec) String() string { return c.Display + c.Ink + c.Glyph }
+
+// RGBA is the interface of an image.Color
+func (c *CellSpec) RGBA() (r, g, b, a uint8) {
+    return c.rgba.R, c.rgba.G, c.rgba.B, c.rgba.A
+}
+
+// Bounds is the size of the GlyphPrint
+func (g *GlyphPrint) Bounds() image.Rectangle {
+    return g.Img.Bounds()
+}
+
+func (g *GlyphPrint) SetPalette(p string) {
+    glyphs := PaletteMap{}
+    copy(glyphs[:], []rune(util.Stretch(p, 255)))
+    g.Chars = glyphs
+}
+
+// PrintRegion actually prints out the region to whatever output it's given
+func (g *GlyphPrint) PrintRegion(writer io.Writer, region Region) {
 	// go row by row in the scaled image.Image and...
-	for y := top; y < btm; y++ {
-
-		// print cells from left to right
-		for x := left; x < right; x++ {
-
-			// get brightness of cell
-			c := color.GrayModel.Convert(img.At(x, y)).(color.Gray)
-
-			level := c.Y / 51 // 51 * 5 = 255
-			if level == 5 {   // clipping
-				level--
-			}
-
-			// get the rgba colour
-			rgb := rotato.RotateHue(color.RGBAModel.Convert(img.At(x, y)).(color.RGBA), Args.HueAngle)
-
-			// get the colour and glyph corresponding to the brightness
-			ink := RGB(rgb.R, rgb.G, rgb.B, Foreground)
-			glyph := glyphs[level]
-
-			// and print the cell
-			fmt.Print(ink + glyph)
+	for y := region.Top; y < region.Btm; y += g.YStep  {
+		// then cell by cell...
+		for x := region.Left; x < region.Right; x ++ {
+            cell := g.At(x, y)
+            fmt.Fprint(writer, cell)
 		}
-
-		fmt.Println(Normalizer)
-	}
-}
-
-func CustomPalette(img image.Image, focusView FocusView, sf ScaleFactors, isBold bool, palette string) {
-    glyphs := [256]rune{}
-    copy(glyphs[:], []rune(util.Stretch(palette, 255)))
-
-	// img relative x, y pixel lower bounds
-	top, left := focusView.GetYOrigin(), focusView.GetXOrigin()
-
-	// img relative x, y pixel upper bounds (right, top)
-	right := focusView.GetXOrigin() + focusView.GetWidth()
-	btm := focusView.GetYOrigin() + focusView.GetHeight()
-
-	scaleY := 1
-
-	// go row by row in the scaled image.Image and...
-	for y := top; y < btm; y += int(Args.Squash) {
-
-		// print cells from left to right
-		for x := left; x < right; x += scaleY {
-			// get brightness of cell
-			c := color.GrayModel.Convert(img.At(x, y)).(color.Gray)
-
-			// get the rgba colour
-			rgb := rotato.RotateHue(color.RGBAModel.Convert(img.At(x, y)).(color.RGBA), Args.HueAngle)
-
-			// get the colour and glyph corresponding to the brightness
-			ink := Bold + RGB(rgb.R, rgb.G, rgb.B, Foreground)
-            glyph := string(glyphs[c.Y])
-			fmt.Print(ink + glyph)
-		}
-		fmt.Println()
-	}
-	// pal := make([]byte, 256)
-
-	// // setup a palette mapping
-	// // palette: ABCDEFGHIJKLMNOP
-	// var chunkIdx byte = 0
-	// for len(pal) < 256 {
-	// 	//chunk := bytes.Repeat([]byte{0x41+chunkIdx}, 16)
-	// 	for i := 0; i < 16; i++ {
-	// 		chunkOffset := int(chunkIdx)*16
-
-	// 		idx := chunkOffset + i
-	// 		if idx > 255 {
-	// 			log.Fatalln("too big: ", idx)
-	// 		}
-	// 		pal[idx] = 0x41+chunkIdx
-	// 	}
-	// 	chunkIdx++
-	// }
-
-	// fmt.Printf("palette length: %d\n", len(pal))
-	// if len(pal) > 256 {
-	// 	log.Fatalf("Palette was too long!\n")
-	// }
-	// fmt.Println(pal)
-}
-
-func PaletteTesting(charset Charset, focusView FocusView, img image.Image) {
-	glyphs := Ramps[charset]
-
-	// img relative x, y pixel lower bounds
-	top, left := focusView.GetYOrigin(), focusView.GetXOrigin()
-
-	// img relative x, y pixel upper bounds (right, top)
-	right := focusView.GetXOrigin() + focusView.GetWidth()
-	btm := focusView.GetYOrigin() + focusView.GetHeight()
-
-	scaleY := 1
-
-	// go row by row in the scaled image.Image and...
-	for y := top; y < btm; y += int(Args.Squash) {
-
-		// print cells from left to right
-		for x := left; x < right; x += scaleY {
-			// get brightness of cell
-			c := avgPixel(img, x, y, int(Args.Squash), scaleY)
-
-			// get the rgba colour
-			rgb := rotato.RotateHue(color.RGBAModel.Convert(img.At(x, y)).(color.RGBA), Args.HueAngle)
-
-			// get the colour and glyph corresponding to the brightness
-			ink := RGB(rgb.R, rgb.G, rgb.B, Foreground)
-
-			fmt.Print(ink + string(glyphs[len(glyphs)*c/65536]))
-		}
-		fmt.Println()
+		fmt.Fprintln(writer)
 	}
 }
 
@@ -321,20 +317,23 @@ func main() {
 	arg.MustParse(&Args)
 	ArgsToJson(Args)
 
-	img, err := loadImage(Args)
+	img, err := loadImage(&Args)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	img = ScaleImg(img, Args)
+	img = ScaleImg(img, &Args)
 	focusView := Args.GetFocusView(img)
-
+    printOut := &GlyphPrint{Img: img, Cli: Args, YStep: 1}
+    charset := "#"
 	switch Args.Mode {
 	case "A":
-		PrintImg(Args.Charset, focusView, img)
+        charset = strings.Join(Charsets[Args.Charset][:], "")
 	case "B":
-		PaletteTesting(Args.Charset, focusView, img)
+        charset = Ramps[Normal]
 	case "C":
-        CustomPalette(img, focusView, Args, Args.Bold, Args.GetCustomPalette())
+        charset = Args.GetCustomPalette()
     }
+    printOut.SetPalette(charset)
+    printOut.PrintRegion(os.Stdout, focusView.GetRegion())
 }
