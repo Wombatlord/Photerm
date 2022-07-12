@@ -9,6 +9,7 @@ import (
 	_ "image/png"
 	"log"
 	"os"
+	"os/exec"
 	"strings"
 
 	"wombatlord/imagestuff/src/rotato"
@@ -171,15 +172,19 @@ func FocusArea(focusView FocusView) (top, left, right, btm int) {
 	return top, left, right, btm
 }
 
-// BufferImages runs asynchronously to load files into memory
+// BufferImageDir runs asynchronously to load files into memory
 // Each file is sent into imageBuffer to be consumed elsewhere.
-func BufferImages(imageBuffer chan image.Image, fs []os.DirEntry) (err error) {
+func BufferImageDir(imageBuffer chan image.Image, fs []os.DirEntry) (err error) {
 
 	for _, file := range fs {
 
 		// Ignore serialised args file and proceed with iteration
 		ext := strings.Split(file.Name(), ".")[1]
-		if ext == "json" {
+
+		switch ext {
+		case "json":
+			continue
+		case "mp4":
 			continue
 		}
 
@@ -200,13 +205,15 @@ func BufferImages(imageBuffer chan image.Image, fs []os.DirEntry) (err error) {
 		img = ScaleImg(img, Args)
 		imageBuffer <- img
 	}
+
 	// Close the channel once all files have been read into it.
 	close(imageBuffer)
 	return nil
 }
 
 // Buffer a single image for non-sequential display
-func BufferImage(imageBuffer chan image.Image) (err error) {
+// from a full provided path.
+func BufferImagePath(imageBuffer chan image.Image) (err error) {
 	imgFile, err = os.Open(Args.GetPath())
 
 	if err != nil {
@@ -270,6 +277,23 @@ func PrintFromBuff(imageBuffer chan image.Image, charset Charset) (err error) {
 	return nil
 }
 
+func mp4ToFrames() {
+	// Split path into constituent strings
+	dest := strings.Split(Args.Path, "/")
+	// re-join all but the final element to construct the path minus the target mp4
+	destDir := strings.Join(dest[0:len(dest)-1], "/")
+
+	// construct the ffmpeg command & run it to convert mp4 to indvidual images saved in destDir
+	// images will be named with ascending triple digits.
+	c := exec.Command("ffmpeg", "-i", Args.Path, "-vf", "fps=24", destDir+"/%03d.jpg")
+	err := c.Run()
+	
+	// catch any errors from the ffmpeg call.
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
 func main() {
 	arg.MustParse(&Args)
 	ArgsToJson(Args)
@@ -280,7 +304,7 @@ func main() {
 		// Provide a full path to Mode A for individual image display.
 
 		imageBuffer := make(chan image.Image, 1)
-		go BufferImage(imageBuffer)
+		go BufferImagePath(imageBuffer)
 		PrintFromBuff(imageBuffer, Args.Charset)
 
 	case "B":
@@ -294,11 +318,16 @@ func main() {
 
 		// load image files in a goroutine
 		// ensures playback is not blocked by io.
-		go BufferImages(imageBuffer, fs)
+		go BufferImageDir(imageBuffer, fs)
 
 		// Consumes image.Image from imageBuffer
 		// Prints each to the terminal.
 		PrintFromBuff(imageBuffer, Args.Charset)
+	
+	case "C":
+		// Provide a path to an mp4.
+		// it will be converted to individual jpgs.
+		// jpgs will be saved in the same directory as the mp4.
+		mp4ToFrames()
 	}
-
 }
