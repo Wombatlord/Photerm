@@ -239,7 +239,7 @@ func BufferImagePath(imageBuffer chan image.Image) (err error) {
 // Essentially, this is lo-fi in-terminal video playback via UTF-8 / ASCII encoded pixels.
 // For now, use ffmpeg cli to generate frames from a video file.
 func PrintFromBuff(imageBuffer chan image.Image, charset Charset) (err error) {
-
+	var frame string
 	glyphs := Charsets[charset]
 
 	for img := range imageBuffer {
@@ -250,7 +250,7 @@ func PrintFromBuff(imageBuffer chan image.Image, charset Charset) (err error) {
 		top, left, right, btm := FocusArea(focusView)
 		// go row by row in the scaled image.Image and...
 		for y := top; y < btm; y += int(Args.Squash) {
-			frame := ""
+			frame = ""
 			// print cells from left to right
 			for x := left; x < right; x += scaleY {
 				// get brightness of cell
