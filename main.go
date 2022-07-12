@@ -243,29 +243,29 @@ func PrintFromBuff(imageBuffer chan image.Image, charset Charset) (err error) {
 	glyphs := Charsets[charset]
 
 	for img := range imageBuffer {
-
+		
 		scaleY := 1
-
+		
 		focusView := Args.GetFocusView(img)
 		top, left, right, btm := FocusArea(focusView)
-
 		// go row by row in the scaled image.Image and...
 		for y := top; y < btm; y += int(Args.Squash) {
-
+			frame := ""
 			// print cells from left to right
 			for x := left; x < right; x += scaleY {
 				// get brightness of cell
 				c := AvgPixel(img, x, y, int(Args.Squash), scaleY)
-
+				
 				// get the rgba colour
 				rgb := rotato.RotateHue(color.RGBAModel.Convert(img.At(x, y)).(color.RGBA), Args.HueAngle)
-
+				
 				// get the colour and glyph corresponding to the brightness
 				ink := RGB(rgb.R, rgb.G, rgb.B, Foreground)
-
-				fmt.Print(ink + string(glyphs[len(glyphs)*c/65536]))
+				
+				frame += ink + string(glyphs[len(glyphs)*c/65536])
 			}
-			fmt.Println(Normalizer)
+			frame += Normalizer + "\n"
+			fmt.Print(frame)
 		}
 
 		if len(imageBuffer) == 0 {
@@ -284,14 +284,23 @@ func mp4ToFrames() {
 	destDir := strings.Join(dest[0:len(dest)-1], "/")
 
 	// construct the ffmpeg command & run it to convert mp4 to indvidual images saved in destDir
-	// images will be named with ascending triple digits.
-	c := exec.Command("ffmpeg", "-i", Args.Path, "-vf", "fps=24", destDir+"/%03d.jpg")
+	// images are named in ascending order, starting at 00000.jpg
+	c := exec.Command("ffmpeg", "-i", Args.Path, "-vf", "fps=24", destDir+"/%05d.jpg")
 	err := c.Run()
-	
 	// catch any errors from the ffmpeg call.
 	if err != nil {
 		log.Fatal(err)
 	}
+	
+	// maybe we can do something with buffering output directly to memory instead of saving?
+	// https://stackoverflow.com/questions/66002676/how-can-i-get-the-file-output-of-the-ffmpeg-command
+	// buff := make([]byte, 5000)
+	// n, err := c.Stdout.Write(buff)
+
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+	// fmt.Printf("buff: %v\n", n)
 }
 
 func main() {
