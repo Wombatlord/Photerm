@@ -261,11 +261,11 @@ func (g *GlyphPrint) At(x, y int) CellSpec {
 	return CellSpec{string(displayAttributes), string(painter), glyph, rgbOut}
 }
 
-// PaletteMap is a conveinient alias for a length 256 rune array
+// PaletteMap is a convenient alias for a length 256 rune array
 type PaletteMap [256]rune
 type Region struct{ Left, Top, Right, Btm int }
 
-// CellSpec is the terminal printout eqivalent of a pixel, however it has the extra
+// CellSpec is the terminal printout equivalent of a pixel, however it has the extra
 // parameter of the text to be displayed in the terminal
 type CellSpec struct {
 	Display, Ink, Glyph string
