@@ -297,9 +297,10 @@ func FOutFromBuf(writer io.WriteCloser, imageBuffer <-chan image.Image, glyphs s
 // RenderFrame returns the printable representation of a single frame as a string. Each frame is a slice of strings
 // each string representing a horizontal line of pixels
 func RenderFrame(img image.Image, palette CharPalette, r photerm.Region) (frameLines []string) {
-    frameLines = make([]string, img.Bounds().Dy())
+    frameLines = []string{}
 	// go row by row in the scaled image.Image and...
 	for y := r.Top; y < r.Btm; y++ {
+		line := ""
 		// print cells from left to right
 		for x := r.Left; x < r.Right; x++ {
 			// get brightness of cell
@@ -312,10 +313,11 @@ func RenderFrame(img image.Image, palette CharPalette, r photerm.Region) (frameL
 			// get the colour and glyph corresponding to the brightness
 			ink := RGB(rgb.R, rgb.G, rgb.B, Foreground)
 
-			frameLines[y] += fmt.Sprint(ink, string(palette[c]))
+			line += fmt.Sprint(ink, string(palette[c]))
 		}
-		frameLines = append(frameLines, Normalizer)
+		frameLines = append(frameLines, line)
 	}
+	//frameLines = append(frameLines, Normalizer)
 	return frameLines
 }
 
