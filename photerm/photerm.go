@@ -30,7 +30,6 @@ type PathSpec interface {
 // Essentially crops the image post scaling if values are non-default.
 type Region struct{ Left, Top, Right, Btm int }
 
-
 // OutputBoundsOf consumes a Cli value and returns pixel width, height tuple
 func OutputDimsOf(scales ScaleFactors, img image.Image) (w, h uint) {
 	height := float64(uint(img.Bounds().Max.Y))
@@ -47,20 +46,3 @@ func ScaleImg(img image.Image, sf ScaleFactors) image.Image {
 	w, h := OutputDimsOf(sf, img)
 	return resize.Resize(w, h, img, resize.Lanczos2)
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

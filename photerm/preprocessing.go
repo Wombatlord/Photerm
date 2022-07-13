@@ -1,9 +1,9 @@
 package photerm
 
 import (
-    "log"
-    "os/exec"
-    "strings"
+	"log"
+	"os/exec"
+	"strings"
 )
 
 // Proxy to ffmpeg CLI for generating sequential jpgs from an mp4.

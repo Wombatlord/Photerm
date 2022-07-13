@@ -83,4 +83,3 @@ func ClearScreenUp() string {
 func ClearEntireScreen() string {
 	return escape("[2J")
 }
-

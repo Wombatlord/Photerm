@@ -73,19 +73,19 @@ func MakeCharPalette(glyphs ...string) CharPalette {
 const NotSet = 0
 
 type Cli struct {
-	Path     string  `arg:"positional" help:"file path for an image" default:"liljeffrey.jpg"`
-	Scale    float64 `arg:"-s, --scale" help:"overall image scale" default:"1.0"`
-	Squash   float64 `arg:"-w, --wide-boyz" help:"How wide you want it guv? (Widens the image)" default:"1.0"`
-	StdInput bool    `arg:"-i, --in" help:"read from stdin"`
-	Mode     string  `arg:"-m, --mode" help:"mode selection determines renderer" default:"A"`
-	Charset  Charset `arg:"-c, --Charset" help:"Charset selection determines the character set used by the renderer" default:"0"`
-	Custom   string  `arg:"--custom" help:"provide a custom string to render with" default:"█"`
-	YOrigin  int     `arg:"--y-org" help:"minimum Y, top of focus" default:"0"`
-	Height   int     `arg:"--height" help:"height, vertical size of focus" default:"0"`
-	XOrigin  int     `arg:"--x-org" help:"minimum X, left edge of focus" default:"0"`
-	Width    int     `arg:"--width" help:"width, width of focus" default:"0"`
-	HueAngle float32 `arg:"--hue" help:"hue rotation angle in radians" default:"0.0"`
-    FrameRate int `arg:"--fps" help:"Provide an integer number of frames per second as an upper limit to the playback speed"`
+	Path      string  `arg:"positional" help:"file path for an image" default:"liljeffrey.jpg"`
+	Scale     float64 `arg:"-s, --scale" help:"overall image scale" default:"1.0"`
+	Squash    float64 `arg:"-w, --wide-boyz" help:"How wide you want it guv? (Widens the image)" default:"1.0"`
+	StdInput  bool    `arg:"-i, --in" help:"read from stdin"`
+	Mode      string  `arg:"-m, --mode" help:"mode selection determines renderer" default:"A"`
+	Charset   Charset `arg:"-c, --Charset" help:"Charset selection determines the character set used by the renderer" default:"0"`
+	Custom    string  `arg:"--custom" help:"provide a custom string to render with" default:"█"`
+	YOrigin   int     `arg:"--y-org" help:"minimum Y, top of focus" default:"0"`
+	Height    int     `arg:"--height" help:"height, vertical size of focus" default:"0"`
+	XOrigin   int     `arg:"--x-org" help:"minimum X, left edge of focus" default:"0"`
+	Width     int     `arg:"--width" help:"width, width of focus" default:"0"`
+	HueAngle  float32 `arg:"--hue" help:"hue rotation angle in radians" default:"0.0"`
+	FrameRate int     `arg:"--fps" help:"Provide an integer number of frames per second as an upper limit to the playback speed"`
 }
 
 func (c Cli) GetPath() string    { return c.Path }
@@ -206,7 +206,7 @@ func BufferImagePath(imageBuffer chan image.Image) (err error) {
 	return nil
 }
 
-// GetFpsLimiter returns an adaptor locked to the provided FPS 
+// GetFpsLimiter returns an adaptor locked to the provided FPS
 // that takes the original unlimited buffer and a new buffer to be populated with one
 // frame per tick where a tick is 1/fps seconds.
 func GetFpsLimiter(fps int) func(in <-chan image.Image, out chan<- image.Image) {
@@ -220,9 +220,9 @@ func GetFpsLimiter(fps int) func(in <-chan image.Image, out chan<- image.Image) 
 				out <- frame
 			}
 		}
-        close(out)
+		close(out)
 	}
-    return fpsLimiter 
+	return fpsLimiter
 }
 
 // FrameEndHook is a function that decides what happens between frames.
@@ -231,42 +231,42 @@ type FrameEndHook func(writer io.Writer, seekBack int) error
 
 // FrameEndHooks is just a named collection of the above
 type FrameEndHooks struct {
-    Print, Animate FrameEndHook
+	Print, Animate FrameEndHook
 }
 
 var frameEndHooks = FrameEndHooks{
-    // Print is the appropriate frame end hook to use when the output is intended to be a still image.
-    Print: func(writer io.Writer, _ int) error {
-        _, err := fmt.Fprintln(writer, Normalizer)
-        return err 
-    },
-    // Animate is the appropriate frame end hook when subsquent images are to be treated as frames in an
-    // animation.
-    Animate: func(writer io.Writer, seekBack int) error {
-        _, err := fmt.Fprintln(writer, util.MoveUp(seekBack))
-        return err
-    },
-} 
+	// Print is the appropriate frame end hook to use when the output is intended to be a still image.
+	Print: func(writer io.Writer, _ int) error {
+		_, err := fmt.Fprintln(writer, Normalizer)
+		return err
+	},
+	// Animate is the appropriate frame end hook when subsquent images are to be treated as frames in an
+	// animation.
+	Animate: func(writer io.Writer, seekBack int) error {
+		_, err := fmt.Fprintln(writer, util.MoveUp(seekBack))
+		return err
+	},
+}
 
 // PlayFromBuff consumes the image.Image files sent into imageBuffer by BufferImages()
 // This function prints the buffer sequentially.
 // Essentially, this is lo-fi in-terminal video playback via UTF-8 / ASCII encoded pixels.
 // For now, use ffmpeg cli to generate frames from a video file.
 func PlayFromBuff(imageBuffer <-chan image.Image, glyphs string, fps int) (err error) {
-    if fps != 0 {
-        fpsLimiter := GetFpsLimiter(fps)
-        fpsLimitedBuffer := make(chan image.Image, len(imageBuffer))
-        go fpsLimiter(imageBuffer, fpsLimitedBuffer)
-        return FOutFromBuf(os.Stdout, fpsLimitedBuffer, glyphs, frameEndHooks.Animate)
-    } else {
-        return FOutFromBuf(os.Stdout, imageBuffer, glyphs, frameEndHooks.Animate) 
-    }
+	if fps != 0 {
+		fpsLimiter := GetFpsLimiter(fps)
+		fpsLimitedBuffer := make(chan image.Image, len(imageBuffer))
+		go fpsLimiter(imageBuffer, fpsLimitedBuffer)
+		return FOutFromBuf(os.Stdout, fpsLimitedBuffer, glyphs, frameEndHooks.Animate)
+	} else {
+		return FOutFromBuf(os.Stdout, imageBuffer, glyphs, frameEndHooks.Animate)
+	}
 }
 
 // PrintFromBuf is designed to print an image or sequence of images to file or stdout.
 // so it uses the print frame end hook
 func PrintFromBuf(imageBuffer <-chan image.Image, glyphs string) (err error) {
-    return FOutFromBuf(os.Stdout, imageBuffer, glyphs, frameEndHooks.Print)
+	return FOutFromBuf(os.Stdout, imageBuffer, glyphs, frameEndHooks.Print)
 }
 
 // FprintFromBuff consumes the image.Image files sent into imageBuffer by BufferImages()
@@ -281,15 +281,15 @@ func FOutFromBuf(writer io.WriteCloser, imageBuffer <-chan image.Image, glyphs s
 
 		// render and print the frame
 		frame := RenderFrame(img, palette, r)
-        printedHeight := len(frame)
+		printedHeight := len(frame)
 		_, err := fmt.Fprint(writer, strings.Join(frame, "\n"))
 		if err != nil {
 			return err
 		}
 
-	    if err = frameEndHook(writer, printedHeight); err != nil {
-            return err
-        }
+		if err = frameEndHook(writer, printedHeight); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -297,8 +297,8 @@ func FOutFromBuf(writer io.WriteCloser, imageBuffer <-chan image.Image, glyphs s
 // RenderFrame returns the printable representation of a single frame as a string. Each frame is a slice of strings
 // each string representing a horizontal line of pixels
 func RenderFrame(img image.Image, palette CharPalette, r photerm.Region) (frameLines []string) {
-    frame := ""
-    // go row by row in the scaled image.Image and...
+	frame := ""
+	// go row by row in the scaled image.Image and...
 	for y := r.Top; y < r.Btm; y++ {
 		// print cells from left to right
 		for x := r.Left; x < r.Right; x++ {
@@ -344,7 +344,7 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-       
+
 		// load image files in a goroutine
 		// ensures playback is not blocked by io.
 		imageBuffer := BufferImageDir(fs)
