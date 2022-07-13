@@ -6,3 +6,5 @@
 /tmp
 /.obsidian
 .idea/
+*.prof
+*.test

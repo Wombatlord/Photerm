@@ -297,7 +297,7 @@ func FOutFromBuf(writer io.WriteCloser, imageBuffer <-chan image.Image, glyphs s
 // RenderFrame returns the printable representation of a single frame as a string. Each frame is a slice of strings
 // each string representing a horizontal line of pixels
 func RenderFrame(img image.Image, palette CharPalette, r photerm.Region) (frameLines []string) {
-	frame := ""
+    frame := ""
 	// go row by row in the scaled image.Image and...
 	for y := r.Top; y < r.Btm; y++ {
 		// print cells from left to right
