@@ -7,9 +7,11 @@ import (
 	"image/color"
 	_ "image/jpeg"
 	_ "image/png"
+	"io"
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"wombatlord/imagestuff/photerm"
 	"wombatlord/imagestuff/src/rotato"
@@ -25,11 +27,16 @@ const (
 	Foreground Painter = "\u001b[38;"
 	Background         = "\u001b[48;"
 	Normalizer         = "\u001b[0m"
+	CSI                = "\u001b["
 )
 
 // RGB paints the string with a true color rgb painter
 func RGB(r, g, b byte, p Painter) string {
 	return fmt.Sprintf("%s2;%d;%d;%dm", p, r, g, b)
+}
+
+func MoveCursorUp(n int) string {
+	return fmt.Sprintf("\n%s%dA", CSI, n)
 }
 
 type Charset int
@@ -52,6 +59,17 @@ var Charsets = [4][]string{
 		"i", "!", "l", "I", ";", ":", ",", "^", "`", "'", ".", " ", "\"", ","},
 }
 
+type CharPalette [256]rune
+
+// MakeCharPalette takes an arbitrary number of string arguments and concatenates (and stretches, if necessary)
+// them together into a CharPalette
+func MakeCharPalette(glyphs ...string) CharPalette {
+	concat := strings.Join(glyphs, "")
+	pal := CharPalette{}
+	copy(pal[:], []rune(util.Stretch(concat, 255)))
+	return pal
+}
+
 const NotSet = 0
 
 type Cli struct {
@@ -67,6 +85,7 @@ type Cli struct {
 	XOrigin  int     `arg:"--x-org" help:"minimum X, left edge of focus" default:"0"`
 	Width    int     `arg:"--width" help:"width, width of focus" default:"0"`
 	HueAngle float32 `arg:"--hue" help:"hue rotation angle in radians" default:"0.0"`
+    FrameRate int `arg:"--fps" help:"Provide an integer number of frames per second as an upper limit to the playback speed"`
 }
 
 func (c Cli) GetPath() string    { return c.Path }
@@ -105,10 +124,6 @@ func (c *Cli) GetFocusView(img image.Image) photerm.FocusView {
 }
 
 var Args Cli
-
-var (
-	imgFile *os.File
-)
 
 // ArgsToJson serialises the passed CLI args.
 // The output file will take its name from Args.Path
@@ -171,7 +186,7 @@ func BufferImageDir(fs []os.DirEntry) <-chan image.Image {
 // Buffer a single image for non-sequential display
 // from a full provided path.
 func BufferImagePath(imageBuffer chan image.Image) (err error) {
-	imgFile, err = os.Open(Args.GetPath())
+	imgFile, err := os.Open(Args.GetPath())
 
 	if err != nil {
 		log.Fatalf("LOAD ERR: %s", err)
@@ -191,51 +206,117 @@ func BufferImagePath(imageBuffer chan image.Image) (err error) {
 	return nil
 }
 
-// PrintFromBuff consumes the image.Image files sent into imageBuffer by BufferImages()
+// GetFpsLimiter returns an adaptor locked to the provided FPS 
+// that takes the original unlimited buffer and a new buffer to be populated with one
+// frame per tick where a tick is 1/fps seconds.
+func GetFpsLimiter(fps int) func(in <-chan image.Image, out chan<- image.Image) {
+	fpsLimiter := func(in <-chan image.Image, out chan<- image.Image) {
+		ticker := time.NewTicker(time.Second / time.Duration(fps))
+		for range ticker.C {
+			frame, frameOk := <-in
+			if !frameOk {
+				break
+			} else {
+				out <- frame
+			}
+		}
+        close(out)
+	}
+    return fpsLimiter 
+}
+
+// FrameEndHook is a function that decides what happens between frames.
+// this is used to switch from animation mode to printout mode
+type FrameEndHook func(writer io.Writer, seekBack int) error
+
+// FrameEndHooks is just a named collection of the above
+type FrameEndHooks struct {
+    Print, Animate FrameEndHook
+}
+
+var frameEndHooks = FrameEndHooks{
+    // Print is the appropriate frame end hook to use when the output is intended to be a still image.
+    Print: func(writer io.Writer, _ int) error {
+        _, err := fmt.Fprintln(writer, Normalizer)
+        return err 
+    },
+    // Animate is the appropriate frame end hook when subsquent images are to be treated as frames in an
+    // animation.
+    Animate: func(writer io.Writer, seekBack int) error {
+        _, err := fmt.Fprintln(writer, util.MoveUp(seekBack))
+        return err
+    },
+} 
+
+// PlayFromBuff consumes the image.Image files sent into imageBuffer by BufferImages()
 // This function prints the buffer sequentially.
 // Essentially, this is lo-fi in-terminal video playback via UTF-8 / ASCII encoded pixels.
 // For now, use ffmpeg cli to generate frames from a video file.
-func PrintFromBuff(imageBuffer <-chan image.Image, glyphs string) (err error) {
-	var frame string
+func PlayFromBuff(imageBuffer <-chan image.Image, glyphs string, fps int) (err error) {
+    if fps != 0 {
+        fpsLimiter := GetFpsLimiter(fps)
+        fpsLimitedBuffer := make(chan image.Image, len(imageBuffer))
+        go fpsLimiter(imageBuffer, fpsLimitedBuffer)
+        return FOutFromBuf(os.Stdout, fpsLimitedBuffer, glyphs, frameEndHooks.Animate)
+    } else {
+        return FOutFromBuf(os.Stdout, imageBuffer, glyphs, frameEndHooks.Animate) 
+    }
+}
 
-	palette := [256]rune{}
-	copy(palette[:], []rune(util.Stretch(glyphs, 255)))
+// PrintFromBuf is designed to print an image or sequence of images to file or stdout.
+// so it uses the print frame end hook
+func PrintFromBuf(imageBuffer <-chan image.Image, glyphs string) (err error) {
+    return FOutFromBuf(os.Stdout, imageBuffer, glyphs, frameEndHooks.Print)
+}
+
+// FprintFromBuff consumes the image.Image files sent into imageBuffer by BufferImages()
+// This function prints the buffer to the passed io.WriteCloser sequentially.
+// Essentially, this is lo-fi in-terminal video playback via UTF-8 / ASCII encoded pixels.
+// For now, use ffmpeg cli to generate frames from a video file.
+func FOutFromBuf(writer io.WriteCloser, imageBuffer <-chan image.Image, glyphs string, frameEndHook FrameEndHook) (err error) {
+	palette := MakeCharPalette(glyphs)
 
 	for img := range imageBuffer {
+		r := Args.GetFocusView(img).GetRegion()
 
-		scaleY := 1
-
-		focusView := Args.GetFocusView(img)
-		r := focusView.GetRegion()
-		//top, left, right, btm := FocusArea(focusView)
-		// go row by row in the scaled image.Image and...
-		for y := r.Top; y < r.Btm; y += int(Args.Squash) {
-			frame = ""
-			// print cells from left to right
-			for x := r.Left; x < r.Right; x += scaleY {
-				// get brightness of cell
-				//c := AvgPixel(img, x, y, int(Args.Squash), scaleY)
-				c := color.GrayModel.Convert(img.At(x, y)).(color.Gray).Y
-
-				// get the rgba colour
-				rgb := rotato.RotateHue(color.RGBAModel.Convert(img.At(x, y)).(color.RGBA), Args.HueAngle)
-
-				// get the colour and glyph corresponding to the brightness
-				ink := RGB(rgb.R, rgb.G, rgb.B, Foreground)
-
-				frame += ink + string(palette[c])
-			}
-			frame += Normalizer + "\n"
-			fmt.Print(frame)
+		// render and print the frame
+		frame := RenderFrame(img, palette, r)
+        printedHeight := len(frame)
+		_, err := fmt.Fprint(writer, strings.Join(frame, "\n"))
+		if err != nil {
+			return err
 		}
 
-		if len(imageBuffer) == 0 {
-			fmt.Println(Normalizer) // leave the final frame in the terminal. Allows for single image render.
-		} else {
-			fmt.Printf("\033[%sA", fmt.Sprint(r.Btm)) // reset cursor to original position before drawing next image.
-		}
+	    if err = frameEndHook(writer, printedHeight); err != nil {
+            return err
+        }
 	}
 	return nil
+}
+
+// RenderFrame returns the printable representation of a single frame as a string. Each frame is a slice of strings
+// each string representing a horizontal line of pixels
+func RenderFrame(img image.Image, palette CharPalette, r photerm.Region) (frameLines []string) {
+    frame := ""
+    // go row by row in the scaled image.Image and...
+	for y := r.Top; y < r.Btm; y++ {
+		// print cells from left to right
+		for x := r.Left; x < r.Right; x++ {
+			// get brightness of cell
+			//c := AvgPixel(img, x, y, int(Args.Squash), scaleY)
+			c := color.GrayModel.Convert(img.At(x, y)).(color.Gray).Y
+
+			// get the rgba colour
+			rgb := rotato.RotateHue(color.RGBAModel.Convert(img.At(x, y)).(color.RGBA), Args.HueAngle)
+
+			// get the colour and glyph corresponding to the brightness
+			ink := RGB(rgb.R, rgb.G, rgb.B, Foreground)
+
+			frame += ink + string(palette[c])
+		}
+		frame += Normalizer + "\n"
+	}
+	return strings.Split(frame, "\n")
 }
 
 func main() {
@@ -263,20 +344,20 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-
+       
 		// load image files in a goroutine
 		// ensures playback is not blocked by io.
 		imageBuffer := BufferImageDir(fs)
 
 		// Consumes image.Image from imageBuffer
 		// Prints each to the terminal.
-		PrintFromBuff(imageBuffer, charset)
+		PlayFromBuff(imageBuffer, charset, Args.FrameRate)
 
 	case "I":
 		// Provide a full path to Mode A for individual image display.
 
 		imageBuffer := make(chan image.Image, 1)
 		BufferImagePath(imageBuffer)
-		PrintFromBuff(imageBuffer, charset)
+		PrintFromBuf(imageBuffer, charset)
 	}
 }
