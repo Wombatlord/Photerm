@@ -70,80 +70,7 @@ func MakeCharPalette(glyphs ...string) CharPalette {
 }
 
 var Args photerm.Cli
-var fc FrameCache
-
-// Just experimenting and exploring abstraction.
-// Encapsulates functionality related to loading & processing frames
-// Holds individual frames in the image field.
-type FrameCache struct {
-	imageFiles  []os.DirEntry
-	imageFile   *os.File
-	image       image.Image
-	imageFormat string
-	frameErr    error
-}
-
-func (fc *FrameCache) loadImageFiles() []os.DirEntry {
-	fc.imageFiles, fc.frameErr = os.ReadDir(Args.GetPath())
-	if fc.frameErr != nil {
-		log.Fatal(fc.frameErr)
-	}
-	return fc.imageFiles
-}
-
-func (fc *FrameCache) decodeFrame(frame *os.File) {
-	fc.image, fc.imageFormat, fc.frameErr = image.Decode(frame)
-	if fc.frameErr != nil {
-		log.Fatalf("DECODE ERR: %s", fc.frameErr)
-	}
-	_ = frame.Close()
-}
-
-func (fc *FrameCache) loadImageFile(f os.DirEntry) *os.File {
-	fc.imageFile, fc.frameErr = os.Open(fmt.Sprintf("%s%s", Args.GetPath(), f.Name()))
-	if fc.frameErr != nil {
-		log.Fatal(fc.frameErr)
-	}
-	return fc.imageFile
-}
-
-func (fc *FrameCache) getImage() image.Image {
-	return fc.image
-}
-
-// BufferImageDir runs asynchronously to load files into memory
-// Each file is sent into imageBuffer to be consumed elsewhere.
-// This is an example of a generator pattern in golang.
-func (fc *FrameCache) BufferImageDir() <-chan image.Image {
-
-	// Define the asynchronous work that will process data and populate the generator
-	// Anonymous func takes the write side of a channel
-	work := func(results chan<- image.Image) {
-		for _, file := range fc.imageFiles {
-
-			// Ignore serialised args file and proceed with iteration
-			ext := strings.Split(file.Name(), ".")[1]
-
-			if ext != "jpg" {continue}
-
-			imgFile := fc.loadImageFile(file)
-			fc.decodeFrame(imgFile)
-
-			// Scale image, then read image.Image into channel.
-			results <- photerm.ScaleImg(fc.image, Args)
-		}
-		// Close the channel once all files have been read into it.
-		close(results)
-	}
-
-	// blocking code
-	imageBuffer := make(chan image.Image, len(fc.imageFiles))
-	// non-blocking
-	go work(imageBuffer)
-
-	// Return the read side of the channel
-	return imageBuffer
-}
+var fc photerm.FrameCache
 
 // Buffer a single image for non-sequential display
 // from a full provided path.
@@ -304,16 +231,11 @@ func main() {
 	case "R":
 		// Provide a DIRECTORY to Mode B for sequential play of all images inside.
 
-		fc.loadImageFiles()
-
-		// fs, err := os.ReadDir(Args.GetPath())
-		// if err != nil {
-		// 	log.Fatal(err)
-		// }
+		fc.LoadImageFiles(Args)
 
 		// load image files in a goroutine
 		// ensures playback is not blocked by io.
-		imageBuffer := fc.BufferImageDir()
+		imageBuffer := fc.BufferImageDir(Args, Args)
 
 		// Consumes image.Image from imageBuffer
 		// Prints each to the terminal.
