@@ -46,3 +46,4 @@ func ScaleImg(img image.Image, sf ScaleFactors) image.Image {
 	w, h := OutputDimsOf(sf, img)
 	return resize.Resize(w, h, img, resize.Lanczos2)
 }
+
