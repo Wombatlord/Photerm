@@ -51,15 +51,15 @@ func OutputDimsOf(scales ScaleFactors, img image.Image) (w, h uint) {
 type FrameCache struct {
 	imageFiles  []os.DirEntry
 	imageFile   *os.File
-	image       image.Image
+	frame       image.Image
 	imageFormat string
 	frameErr    error
 }
 
 // ScaleImg does global scale and makes boyz wide
 func (fc *FrameCache) ScaleImg(sf ScaleFactors) image.Image {
-	w, h := OutputDimsOf(sf, fc.image)
-	return resize.Resize(w, h, fc.image, resize.Lanczos2)
+	w, h := OutputDimsOf(sf, fc.frame)
+	return resize.Resize(w, h, fc.frame, resize.Lanczos2)
 }
 
 // LoadImageFiles takes a path to a directory of jpgs/pngs and loads them
@@ -74,26 +74,30 @@ func (fc *FrameCache) LoadImageFiles(path PathSpec) []os.DirEntry {
 
 // LoadImageFile takes a path to a single jpg/png and loads it
 // into the FrameCache.imageFile field for decoding.
-func (fc *FrameCache) LoadImageFile(f os.DirEntry, path PathSpec) *os.File {
-	fc.imageFile, fc.frameErr = os.Open(fmt.Sprintf("%s%s", path.GetPath(), f.Name()))
+func (fc *FrameCache) LoadImageFile(file os.DirEntry, path PathSpec) *os.File {
+	fullPath := fmt.Sprintf("%s%s", path.GetPath(), file.Name())
+
+	fc.imageFile, fc.frameErr = os.Open(fullPath)
+
 	if fc.frameErr != nil {
 		log.Fatal(fc.frameErr)
 	}
+
 	return fc.imageFile
 }
 
 // DecodeFrame pulls a pointer to a jpg/png from the imageFiles array.
 // the *os.File is then decoded into an image.Image for processing and render.
 func (fc *FrameCache) DecodeFrame(frame *os.File) {
-	fc.image, fc.imageFormat, fc.frameErr = image.Decode(frame)
+	fc.frame, fc.imageFormat, fc.frameErr = image.Decode(frame)
 	if fc.frameErr != nil {
 		log.Fatalf("DECODE ERR: %s", fc.frameErr)
 	}
 	_ = frame.Close()
 }
 
-func (fc *FrameCache) GetImage() image.Image {
-	return fc.image
+func (fc *FrameCache) GetFrame() image.Image {
+	return fc.frame
 }
 
 // Returns the extension of a file, eg. .json, .jpg, .mp4
@@ -104,8 +108,7 @@ func (fc *FrameCache) checkExtension(f os.DirEntry) string {
 // BufferImageDir runs asynchronously to load files into memory
 // Each file is sent into imageBuffer to be consumed elsewhere.
 // This is an example of a generator pattern in golang.
-func (fc *FrameCache) BufferImageDir(path PathSpec, sf ScaleFactors) <-chan image.Image {
-
+func (fc *FrameCache) BufferImageDir(args Cli) <-chan image.Image {
 	// Define the asynchronous work that will process data and populate the generator
 	// Anonymous func takes the write side of a channel
 	work := func(results chan<- image.Image) {
@@ -117,11 +120,11 @@ func (fc *FrameCache) BufferImageDir(path PathSpec, sf ScaleFactors) <-chan imag
 			}
 
 			// Load & Decode the .jpg file into an image.Image
-			imgFile := fc.LoadImageFile(file, path)
+			imgFile := fc.LoadImageFile(file, args)
 			fc.DecodeFrame(imgFile)
 
 			// Scale image, then read image.Image into channel.
-			results <- fc.ScaleImg(sf)
+			results <- fc.ScaleImg(args)
 		}
 		// Close the channel once all files have been read into it.
 		close(results)
@@ -139,22 +142,17 @@ func (fc *FrameCache) BufferImageDir(path PathSpec, sf ScaleFactors) <-chan imag
 // Buffer a single image for non-sequential display
 // from a full provided path.
 func (fc *FrameCache) BufferImagePath(imageBuffer chan image.Image, path PathSpec, sf ScaleFactors) (err error) {
+
 	imgFile, err := os.Open(path.GetPath())
 
 	if err != nil {
 		log.Fatalf("LOAD ERR: %s", err)
 	}
 
-	defer imgFile.Close()
+	fc.DecodeFrame(imgFile)
 
-	img, _, err := image.Decode(imgFile)
-
-	if err != nil {
-		log.Fatalf("DECODE ERR: %s", err)
-	}
 	// Scale image, then read image.Image into channel.
-	img = fc.ScaleImg(sf)
-	imageBuffer <- img
+	imageBuffer <- fc.ScaleImg(sf)
 	close(imageBuffer)
 	return nil
 }

@@ -208,10 +208,10 @@ func main() {
 		// Provide a DIRECTORY to Mode B for sequential play of all images inside.
 
 		fc.LoadImageFiles(Args)
-
+	
 		// load image files in a goroutine
 		// ensures playback is not blocked by io.
-		imageBuffer := fc.BufferImageDir(Args, Args)
+		imageBuffer := fc.BufferImageDir(Args)
 
 		// Consumes image.Image from imageBuffer
 		// Prints each to the terminal.
