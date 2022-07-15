@@ -7,7 +7,6 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
-	"log"
 	"os"
 	"strings"
 	"time"
@@ -71,29 +70,6 @@ func MakeCharPalette(glyphs ...string) CharPalette {
 
 var Args photerm.Cli
 var fc photerm.FrameCache
-
-// Buffer a single image for non-sequential display
-// from a full provided path.
-func BufferImagePath(imageBuffer chan image.Image) (err error) {
-	imgFile, err := os.Open(Args.GetPath())
-
-	if err != nil {
-		log.Fatalf("LOAD ERR: %s", err)
-	}
-
-	defer imgFile.Close()
-
-	img, _, err := image.Decode(imgFile)
-
-	if err != nil {
-		log.Fatalf("DECODE ERR: %s", err)
-	}
-	// Scale image, then read image.Image into channel.
-	img = photerm.ScaleImg(img, Args)
-	imageBuffer <- img
-	close(imageBuffer)
-	return nil
-}
 
 // GetFpsLimiter returns an adaptor locked to the provided FPS
 // that takes the original unlimited buffer and a new buffer to be populated with one
@@ -245,7 +221,7 @@ func main() {
 		// Provide a full path to Mode A for individual image display.
 
 		imageBuffer := make(chan image.Image, 1)
-		BufferImagePath(imageBuffer)
+		fc.BufferImagePath(imageBuffer, Args, Args)
 		PrintFromBuf(imageBuffer, charset)
 	}
 }

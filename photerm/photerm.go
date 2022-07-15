@@ -45,12 +45,6 @@ func OutputDimsOf(scales ScaleFactors, img image.Image) (w, h uint) {
 	return uint(scale * height * ratio), uint(scale * height)
 }
 
-// ScaleImg does global scale and makes boyz wide
-func ScaleImg(img image.Image, sf ScaleFactors) image.Image {
-	w, h := OutputDimsOf(sf, img)
-	return resize.Resize(w, h, img, resize.Lanczos2)
-}
-
 // Just experimenting and exploring abstraction.
 // Encapsulates functionality related to loading & processing frames
 // Holds individual frames in the image field.
@@ -62,6 +56,14 @@ type FrameCache struct {
 	frameErr    error
 }
 
+// ScaleImg does global scale and makes boyz wide
+func (fc *FrameCache) ScaleImg(sf ScaleFactors) image.Image {
+	w, h := OutputDimsOf(sf, fc.image)
+	return resize.Resize(w, h, fc.image, resize.Lanczos2)
+}
+
+// LoadImageFiles takes a path to a directory of jpgs/pngs and loads them
+// into the FrameCache.imageFiles array for enumeration.
 func (fc *FrameCache) LoadImageFiles(path PathSpec) []os.DirEntry {
 	fc.imageFiles, fc.frameErr = os.ReadDir(path.GetPath())
 	if fc.frameErr != nil {
@@ -70,20 +72,24 @@ func (fc *FrameCache) LoadImageFiles(path PathSpec) []os.DirEntry {
 	return fc.imageFiles
 }
 
-func (fc *FrameCache) DecodeFrame(frame *os.File) {
-	fc.image, fc.imageFormat, fc.frameErr = image.Decode(frame)
-	if fc.frameErr != nil {
-		log.Fatalf("DECODE ERR: %s", fc.frameErr)
-	}
-	_ = frame.Close()
-}
-
+// LoadImageFile takes a path to a single jpg/png and loads it
+// into the FrameCache.imageFile field for decoding.
 func (fc *FrameCache) LoadImageFile(f os.DirEntry, path PathSpec) *os.File {
 	fc.imageFile, fc.frameErr = os.Open(fmt.Sprintf("%s%s", path.GetPath(), f.Name()))
 	if fc.frameErr != nil {
 		log.Fatal(fc.frameErr)
 	}
 	return fc.imageFile
+}
+
+// DecodeFrame pulls a pointer to a jpg/png from the imageFiles array.
+// the *os.File is then decoded into an image.Image for processing and render.
+func (fc *FrameCache) DecodeFrame(frame *os.File) {
+	fc.image, fc.imageFormat, fc.frameErr = image.Decode(frame)
+	if fc.frameErr != nil {
+		log.Fatalf("DECODE ERR: %s", fc.frameErr)
+	}
+	_ = frame.Close()
 }
 
 func (fc *FrameCache) GetImage() image.Image {
@@ -115,7 +121,7 @@ func (fc *FrameCache) BufferImageDir(path PathSpec, sf ScaleFactors) <-chan imag
 			fc.DecodeFrame(imgFile)
 
 			// Scale image, then read image.Image into channel.
-			results <- ScaleImg(fc.image, sf)
+			results <- fc.ScaleImg(sf)
 		}
 		// Close the channel once all files have been read into it.
 		close(results)
@@ -128,4 +134,27 @@ func (fc *FrameCache) BufferImageDir(path PathSpec, sf ScaleFactors) <-chan imag
 
 	// Return the read side of the channel
 	return imageBuffer
+}
+
+// Buffer a single image for non-sequential display
+// from a full provided path.
+func (fc *FrameCache) BufferImagePath(imageBuffer chan image.Image, path PathSpec, sf ScaleFactors) (err error) {
+	imgFile, err := os.Open(path.GetPath())
+
+	if err != nil {
+		log.Fatalf("LOAD ERR: %s", err)
+	}
+
+	defer imgFile.Close()
+
+	img, _, err := image.Decode(imgFile)
+
+	if err != nil {
+		log.Fatalf("DECODE ERR: %s", err)
+	}
+	// Scale image, then read image.Image into channel.
+	img = fc.ScaleImg(sf)
+	imageBuffer <- img
+	close(imageBuffer)
+	return nil
 }
