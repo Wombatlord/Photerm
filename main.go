@@ -134,15 +134,53 @@ func ArgsToJson(c Cli) {
 	_ = os.WriteFile(fileName, file, 0644)
 }
 
+var fc FrameCache
+
+// Just experimenting and exploring abstraction.
+// Encapsulates load / buffer functionality
+// Holds individual frames in the image field.
+type FrameCache struct {
+	imageFiles  []os.DirEntry
+	imageFile   *os.File
+	image       image.Image
+	imageFormat string
+	frameErr    error
+}
+
+func (fc *FrameCache) loadImageFiles() []os.DirEntry {
+	fc.imageFiles, fc.frameErr = os.ReadDir(Args.GetPath())
+	if fc.frameErr != nil {
+		log.Fatal(fc.frameErr)
+	}
+	return fc.imageFiles
+}
+
+func (fc *FrameCache) decodeFrame(frame *os.File) {
+	fc.image, fc.imageFormat, fc.frameErr = image.Decode(frame)
+	fc.frameErr = frame.Close()
+}
+
+func (fc *FrameCache) loadImageFile() *os.File {
+	fc.imageFile, fc.frameErr = os.Open(Args.GetPath())
+	if fc.frameErr != nil {
+		log.Fatal(fc.frameErr)
+	}
+	return fc.imageFile
+}
+
+func (fc *FrameCache) getImage() image.Image {
+	return fc.image
+}
+
 // BufferImageDir runs asynchronously to load files into memory
 // Each file is sent into imageBuffer to be consumed elsewhere.
 // This is an example of a generator pattern in golang.
-func BufferImageDir(fs []os.DirEntry) <-chan image.Image {
+func (fc *FrameCache) BufferImageDir() <-chan image.Image {
 
 	// Define the asynchronous work that will process data and populate the generator
 	// Anonymous func takes the write side of a channel
 	work := func(results chan<- image.Image) {
-		for _, file := range fs {
+		for _, file := range fc.imageFiles {
 
 			// Ignore serialised args file and proceed with iteration
 			ext := strings.Split(file.Name(), ".")[1]
@@ -160,22 +198,25 @@ func BufferImageDir(fs []os.DirEntry) <-chan image.Image {
 				log.Fatalf("LOAD ERR: %s", err)
 			}
 
-			img, _, err := image.Decode(imgFile)
-			_ = imgFile.Close()
+			// img, _, err := image.Decode(imgFile)
+			// _ = imgFile.Close()
 
-			if err != nil {
-				log.Fatalf("DECODE ERR: %s", err)
-			}
+			// if err != nil {
+			// 	log.Fatalf("DECODE ERR: %s", err)
+			// }
+
+			fc.decodeFrame(imgFile)
+
 			// Scale image, then read image.Image into channel.
-			img = photerm.ScaleImg(img, Args)
-			results <- img
+			// fc.image = photerm.ScaleImg(fc.image, Args)
+			results <- photerm.ScaleImg(fc.image, Args)
 		}
 		// Close the channel once all files have been read into it.
 		close(results)
 	}
 
 	// blocking code
-	imageBuffer := make(chan image.Image, len(fs))
+	imageBuffer := make(chan image.Image, len(fc.imageFiles))
 	// non-blocking
 	go work(imageBuffer)
 
@@ -297,7 +338,7 @@ func FOutFromBuf(writer io.WriteCloser, imageBuffer <-chan image.Image, glyphs s
 // RenderFrame returns the printable representation of a single frame as a string. Each frame is a slice of strings
 // each string representing a horizontal line of pixels
 func RenderFrame(img image.Image, palette CharPalette, r photerm.Region) (frameLines []string) {
-    frameLines = []string{}
+	frameLines = []string{}
 	// go row by row in the scaled image.Image and...
 	for y := r.Top; y < r.Btm; y++ {
 		line := ""
@@ -342,14 +383,16 @@ func main() {
 	case "R":
 		// Provide a DIRECTORY to Mode B for sequential play of all images inside.
 
-		fs, err := os.ReadDir(Args.GetPath())
-		if err != nil {
-			log.Fatal(err)
-		}
+		fc.loadImageFiles()
+
+		// fs, err := os.ReadDir(Args.GetPath())
+		// if err != nil {
+		// 	log.Fatal(err)
+		// }
 
 		// load image files in a goroutine
 		// ensures playback is not blocked by io.
-		imageBuffer := BufferImageDir(fs)
+		imageBuffer := fc.BufferImageDir()
 
 		// Consumes image.Image from imageBuffer
 		// Prints each to the terminal.

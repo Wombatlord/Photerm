@@ -17,6 +17,7 @@ func Mp4ToFrames(p PathSpec) {
 	// images are named in ascending order, starting at 00000.jpg
 	c := exec.Command("ffmpeg", "-i", p.GetPath(), "-vf", "fps=24", destDir+"/%05d.jpg")
 	err := c.Run()
+	
 	// catch any errors from the ffmpeg call.
 	if err != nil {
 		log.Fatal(err)
