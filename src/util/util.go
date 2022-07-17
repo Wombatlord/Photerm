@@ -1,6 +1,7 @@
 package util
 
 import (
+	"log"
 	"sort"
 )
 
@@ -52,4 +53,12 @@ func Stretch(s string, toLength uint8) string {
 	}
 
 	return res
+}
+
+// Must is a function for reducing some visual noise in main by
+// implementing the default handling for errors here.
+func Must(err error) {
+	if err != nil {
+		log.Fatal(err)
+	}
 }

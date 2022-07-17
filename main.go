@@ -269,7 +269,7 @@ func PrintFromBuf(imageBuffer <-chan image.Image, glyphs string) (err error) {
 	return FOutFromBuf(os.Stdout, imageBuffer, glyphs, frameEndHooks.Print)
 }
 
-// FprintFromBuff consumes the image.Image files sent into imageBuffer by BufferImages()
+// FOutFromBuf consumes the image.Image files sent into imageBuffer by BufferImages()
 // This function prints the buffer to the passed io.WriteCloser sequentially.
 // Essentially, this is lo-fi in-terminal video playback via UTF-8 / ASCII encoded pixels.
 // For now, use ffmpeg cli to generate frames from a video file.
@@ -297,14 +297,13 @@ func FOutFromBuf(writer io.WriteCloser, imageBuffer <-chan image.Image, glyphs s
 // RenderFrame returns the printable representation of a single frame as a string. Each frame is a slice of strings
 // each string representing a horizontal line of pixels
 func RenderFrame(img image.Image, palette CharPalette, r photerm.Region) (frameLines []string) {
-    frameLines = []string{}
+	frameLines = []string{}
 	// go row by row in the scaled image.Image and...
 	for y := r.Top; y < r.Btm; y++ {
 		line := ""
 		// print cells from left to right
 		for x := r.Left; x < r.Right; x++ {
 			// get brightness of cell
-			//c := AvgPixel(img, x, y, int(Args.Squash), scaleY)
 			c := color.GrayModel.Convert(img.At(x, y)).(color.Gray).Y
 
 			// get the rgba colour
@@ -317,12 +316,10 @@ func RenderFrame(img image.Image, palette CharPalette, r photerm.Region) (frameL
 		}
 		frameLines = append(frameLines, line)
 	}
-	//frameLines = append(frameLines, Normalizer)
 	return frameLines
 }
 
 func main() {
-
 	arg.MustParse(&Args)
 	ArgsToJson(Args)
 
@@ -353,13 +350,23 @@ func main() {
 
 		// Consumes image.Image from imageBuffer
 		// Prints each to the terminal.
-		PlayFromBuff(imageBuffer, charset, Args.FrameRate)
+		util.Must(PlayFromBuff(imageBuffer, charset, Args.FrameRate))
 
 	case "I":
 		// Provide a full path to Mode A for individual image display.
-
 		imageBuffer := make(chan image.Image, 1)
-		BufferImagePath(imageBuffer)
-		PrintFromBuf(imageBuffer, charset)
+		util.Must(BufferImagePath(imageBuffer))
+		util.Must(PrintFromBuf(imageBuffer, charset))
+
+	case "S":
+		// S is the streaming mode! Supply the path to an mp4 file and it should play it as fast as ffmpeg can go
+		stream, err := photerm.StreamMp4ToFrames(Args)
+		if err != nil {
+			log.Fatal(err)
+		}
+		buf := make(chan image.Image)
+
+		go photerm.Stream2Buf(buf, stream, Args)
+		util.Must(PlayFromBuff(buf, charset, Args.FrameRate))
 	}
 }
