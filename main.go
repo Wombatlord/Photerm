@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"image"
@@ -30,9 +31,18 @@ const (
 	CSI                = "\u001b["
 )
 
+var numeralCache = func() [][]byte {
+	val := make([][]byte, 256)
+	for i := range val {
+		val[i] = []byte(fmt.Sprint(i))
+	}
+	return val
+}()
+
 // RGB paints the string with a true color rgb painter
-func RGB(r, g, b byte, p Painter) string {
-	return fmt.Sprintf("%s2;%d;%d;%dm", p, r, g, b)
+func RGB(r, g, b byte, p Painter) []byte {
+	//return fmt.Sprintf("%s2;%d;%d;%dm", p, r, g, b)
+	return append(append(append(append(append(append(append([]byte(p), []byte("2;")...), []byte(numeralCache[r])...), ';'), numeralCache[g]...), ';'), numeralCache[b]...), 'm')
 }
 
 func MoveCursorUp(n int) string {
@@ -276,20 +286,26 @@ func PrintFromBuf(imageBuffer <-chan image.Image, glyphs string) (err error) {
 func FOutFromBuf(writer io.WriteCloser, imageBuffer <-chan image.Image, glyphs string, frameEndHook FrameEndHook) (err error) {
 	palette := MakeCharPalette(glyphs)
 
+	// Use a buffered writer bc it's probably faster
+	bufWriter := bufio.NewWriter(writer)
 	for img := range imageBuffer {
 		r := Args.GetFocusView(img).GetRegion()
 
 		// render and print the frame
 		frame := RenderFrame(img, palette, r)
 		printedHeight := len(frame)
-		_, err := fmt.Fprint(writer, strings.Join(frame, "\n"))
+		_, err := fmt.Fprint(bufWriter, strings.Join(frame, "\n"))
 		if err != nil {
 			return err
 		}
 
-		if err = frameEndHook(writer, printedHeight); err != nil {
+		if err = frameEndHook(bufWriter, printedHeight); err != nil {
 			return err
 		}
+
+		// flushing the bufWriter here will actually do the write to the output writer
+		// think of it as some ghetto ass vsync
+		bufWriter.Flush()
 	}
 	return nil
 }
@@ -300,21 +316,23 @@ func RenderFrame(img image.Image, palette CharPalette, r photerm.Region) (frameL
 	frameLines = []string{}
 	// go row by row in the scaled image.Image and...
 	for y := r.Top; y < r.Btm; y++ {
-		line := ""
+		line := []byte{}
 		// print cells from left to right
 		for x := r.Left; x < r.Right; x++ {
-			// get brightness of cell
-			c := color.GrayModel.Convert(img.At(x, y)).(color.Gray).Y
+			rgb := color.RGBAModel.Convert(img.At(x, y)).(color.RGBA)
 
-			// get the rgba colour
-			rgb := rotato.RotateHue(color.RGBAModel.Convert(img.At(x, y)).(color.RGBA), Args.HueAngle)
+			// get brightness of cell
+			c := color.GrayModel.Convert(rgb).(color.Gray).Y
+
+			// rotate hue
+			rotato.RotateHue(&rgb, Args.HueAngle)
 
 			// get the colour and glyph corresponding to the brightness
 			ink := RGB(rgb.R, rgb.G, rgb.B, Foreground)
 
-			line += fmt.Sprint(ink, string(palette[c]))
+			line = append(append(line, ink...), []byte(string(palette[c]))...)
 		}
-		frameLines = append(frameLines, line)
+		frameLines = append(frameLines, string(line))
 	}
 	return frameLines
 }

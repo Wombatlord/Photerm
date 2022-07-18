@@ -26,10 +26,11 @@ func (s stubImg) Bounds() image.Rectangle {
 
 // Generates random noise. Not a sensible implementation for any other use case
 func (s stubImg) At(x, y int) color.Color {
+	z := uint8(rng.Intn(256))
 	return color.RGBA{
-		R: uint8(rng.Intn(256)),
-		G: uint8(rng.Intn(256)),
-		B: uint8(rng.Intn(256)),
+		R: z,
+		G: z,
+		B: z,
 	}
 }
 
@@ -43,8 +44,8 @@ func BenchmarkRenderFrame(b *testing.B) {
 	var img image.Image
 
 	r := photerm.Region{
-		Right: 160,
-		Btm:   90,
+		Right: 800,
+		Btm:   600,
 	}
 	img = stubImg{r}
 	for n := 0; n < b.N; n++ {
