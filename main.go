@@ -318,7 +318,7 @@ func FOutFromBuf(writer io.WriteCloser, imageBuffer <-chan image.Image, glyphs s
 // each string representing a horizontal line of pixels
 func RenderFrame(img image.Image, palette CharPalette, r photerm.Region) (frameLines []string) {
 	frameLines = []string{}
-	// go row by row in the scaled image.Image and...
+	// go row by row in the Scaled image.Image and...
 	for y := r.Top; y < r.Btm; y++ {
 		line := []byte{}
 		// print cells from left to right
@@ -381,7 +381,7 @@ func main() {
 		util.Must(PrintFromBuf(imageBuffer, charset))
 
 	case "S":
-		// S is the streaming mode! Supply the path to an mp4 file and it should play it as fast as ffmpeg can go
+		// S is the streaming mode!
 		stream, err := photerm.StreamMp4ToFrames(Args)
 		if err != nil {
 			log.Fatal(err)
