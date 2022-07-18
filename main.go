@@ -41,8 +41,12 @@ var numeralCache = func() [][]byte {
 
 // RGB paints the string with a true color rgb painter
 func RGB(r, g, b byte, p Painter) []byte {
-	//return fmt.Sprintf("%s2;%d;%d;%dm", p, r, g, b)
-	return append(append(append(append(append(append(append([]byte(p), []byte("2;")...), []byte(numeralCache[r])...), ';'), numeralCache[g]...), ';'), numeralCache[b]...), 'm')
+	// the apalling code below is way faster than the fmt.Sprintf version
+	// but for readability the equivalent code is below
+	// return fmt.Sprintf("%s2;%d;%d;%dm", p, r, g, b)
+	return append(append(append(append(append(append(append(
+		[]byte(p), []byte("2;")...), []byte(numeralCache[r])...), ';'), numeralCache[g]...), ';'), numeralCache[b]...), 'm',
+	)
 }
 
 func MoveCursorUp(n int) string {
