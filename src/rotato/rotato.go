@@ -2,21 +2,26 @@ package rotato
 
 import (
 	"image/color"
-	"math"
+	"wombatlord/imagestuff/src/util"
 
 	"github.com/ungerik/go3d/quaternion"
 	"github.com/ungerik/go3d/vec3"
 )
 
-func RotateHue(rgb color.RGBA, hueAngle float32) color.RGBA {
-	mag := float32(math.Cbrt(3))
+var rot quaternion.T
+
+const mag = 1.732050807568877
+
+func RotateHue(rgb *color.RGBA, hueAngle float32) {
 	axis := vec3.T{
 		1.0 / mag,
 		1.0 / mag,
 		1.0 / mag,
 	}
 
-	rot := quaternion.FromAxisAngle(&axis, hueAngle)
+	if rot == [4]float32{} {
+		rot = quaternion.FromAxisAngle(&axis, hueAngle)
+	}
 
 	rgbVec := vec3.T{
 		float32(rgb.R),
@@ -25,11 +30,11 @@ func RotateHue(rgb color.RGBA, hueAngle float32) color.RGBA {
 	}
 
 	res := rot.RotatedVec3(&rgbVec)
+	rgb.R = bound(res[0])
+	rgb.G = bound(res[1])
+	rgb.B = bound(res[2])
+}
 
-	return color.RGBA{
-		R: uint8(res[0]),
-		G: uint8(res[1]),
-		B: uint8(res[2]),
-		A: rgb.A,
-	}
+func bound(fl float32) uint8 {
+	return uint8(util.Max(0, util.Min(255, int(fl))))
 }

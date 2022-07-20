@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"image"
@@ -30,9 +31,22 @@ const (
 	CSI                = "\u001b["
 )
 
+var numeralCache = func() [][]byte {
+	val := make([][]byte, 256)
+	for i := range val {
+		val[i] = []byte(fmt.Sprint(i))
+	}
+	return val
+}()
+
 // RGB paints the string with a true color rgb painter
-func RGB(r, g, b byte, p Painter) string {
-	return fmt.Sprintf("%s2;%d;%d;%dm", p, r, g, b)
+func RGB(r, g, b byte, p Painter) []byte {
+	// the apalling code below is way faster than the fmt.Sprintf version
+	// but for readability the fmt.Sprintf version is below
+	// return fmt.Sprintf("%s2;%d;%d;%dm", p, r, g, b)
+	return append(append(append(append(append(append(append(
+		[]byte(p), []byte("2;")...), []byte(numeralCache[r])...), ';'), numeralCache[g]...), ';'), numeralCache[b]...), 'm',
+	)
 }
 
 func MoveCursorUp(n int) string {
@@ -269,27 +283,33 @@ func PrintFromBuf(imageBuffer <-chan image.Image, glyphs string) (err error) {
 	return FOutFromBuf(os.Stdout, imageBuffer, glyphs, frameEndHooks.Print)
 }
 
-// FprintFromBuff consumes the image.Image files sent into imageBuffer by BufferImages()
+// FOutFromBuf consumes the image.Image files sent into imageBuffer by BufferImages()
 // This function prints the buffer to the passed io.WriteCloser sequentially.
 // Essentially, this is lo-fi in-terminal video playback via UTF-8 / ASCII encoded pixels.
 // For now, use ffmpeg cli to generate frames from a video file.
 func FOutFromBuf(writer io.WriteCloser, imageBuffer <-chan image.Image, glyphs string, frameEndHook FrameEndHook) (err error) {
 	palette := MakeCharPalette(glyphs)
 
+	// Use a buffered writer bc it's probably faster
+	bufWriter := bufio.NewWriter(writer)
 	for img := range imageBuffer {
 		r := Args.GetFocusView(img).GetRegion()
 
 		// render and print the frame
 		frame := RenderFrame(img, palette, r)
 		printedHeight := len(frame)
-		_, err := fmt.Fprint(writer, strings.Join(frame, "\n"))
+		_, err := fmt.Fprint(bufWriter, strings.Join(frame, "\n"))
 		if err != nil {
 			return err
 		}
 
-		if err = frameEndHook(writer, printedHeight); err != nil {
+		if err = frameEndHook(bufWriter, printedHeight); err != nil {
 			return err
 		}
+
+		// flushing the bufWriter here will actually do the write to the output writer
+		// think of it as some ghetto ass vsync
+		bufWriter.Flush()
 	}
 	return nil
 }
@@ -297,30 +317,31 @@ func FOutFromBuf(writer io.WriteCloser, imageBuffer <-chan image.Image, glyphs s
 // RenderFrame returns the printable representation of a single frame as a string. Each frame is a slice of strings
 // each string representing a horizontal line of pixels
 func RenderFrame(img image.Image, palette CharPalette, r photerm.Region) (frameLines []string) {
-	frame := ""
-	// go row by row in the scaled image.Image and...
+	frameLines = []string{}
+	// go row by row in the Scaled image.Image and...
 	for y := r.Top; y < r.Btm; y++ {
+		line := []byte{}
 		// print cells from left to right
 		for x := r.Left; x < r.Right; x++ {
-			// get brightness of cell
-			//c := AvgPixel(img, x, y, int(Args.Squash), scaleY)
-			c := color.GrayModel.Convert(img.At(x, y)).(color.Gray).Y
+			rgb := color.RGBAModel.Convert(img.At(x, y)).(color.RGBA)
 
-			// get the rgba colour
-			rgb := rotato.RotateHue(color.RGBAModel.Convert(img.At(x, y)).(color.RGBA), Args.HueAngle)
+			// get brightness of cell
+			c := color.GrayModel.Convert(rgb).(color.Gray).Y
+
+			// rotate hue
+			rotato.RotateHue(&rgb, Args.HueAngle)
 
 			// get the colour and glyph corresponding to the brightness
 			ink := RGB(rgb.R, rgb.G, rgb.B, Foreground)
 
-			frame += ink + string(palette[c])
+			line = append(append(line, ink...), []byte(string(palette[c]))...)
 		}
-		frame += Normalizer + "\n"
+		frameLines = append(frameLines, string(line))
 	}
-	return strings.Split(frame, "\n")
+	return frameLines
 }
 
 func main() {
-
 	arg.MustParse(&Args)
 	ArgsToJson(Args)
 
@@ -351,13 +372,23 @@ func main() {
 
 		// Consumes image.Image from imageBuffer
 		// Prints each to the terminal.
-		PlayFromBuff(imageBuffer, charset, Args.FrameRate)
+		util.Must(PlayFromBuff(imageBuffer, charset, Args.FrameRate))
 
 	case "I":
 		// Provide a full path to Mode A for individual image display.
-
 		imageBuffer := make(chan image.Image, 1)
-		BufferImagePath(imageBuffer)
-		PrintFromBuf(imageBuffer, charset)
+		util.Must(BufferImagePath(imageBuffer))
+		util.Must(PrintFromBuf(imageBuffer, charset))
+
+	case "S":
+		// S is the streaming mode!
+		stream, err := photerm.StreamMp4ToFrames(Args)
+		if err != nil {
+			log.Fatal(err)
+		}
+		buf := make(chan image.Image)
+
+		go photerm.Stream2Buf(buf, stream, Args)
+		util.Must(PlayFromBuff(buf, charset, Args.FrameRate))
 	}
 }

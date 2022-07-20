@@ -6,3 +6,7 @@
 /tmp
 /.obsidian
 .idea/
+*.prof
+*.test
+*.test.exe
+imagestuff
