@@ -142,7 +142,7 @@ func CutPNGsFromStream(out chan<- []byte, r io.ReadCloser) {
 		}
 
 		// append the buffer to the imageData
-		imgData = append(imgData, buff...)
+		imgData = append(imgData, buff[:n]...)
 
 		// search for the next
 		offset := Lookahead(PNGHead, imgData)
