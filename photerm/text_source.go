@@ -214,12 +214,12 @@ func GenImages(text <-chan string, pts float64, panningStep int) <-chan image.Im
 	return out
 }
 
-func Marquee(from io.Reader, fontPts float64) (<-chan image.Image, error) {
+func Marquee(from io.Reader, fontPts float64, letterWidth int) (<-chan image.Image, error) {
 	text, err := ioutil.ReadAll(from)
 	if err != nil {
 		return nil, err
 	}
-	words := GenFixedWidth(string(text), 16)
+	words := GenFixedWidth(string(text), letterWidth)
 
-	return GenImages(words, fontPts, 4), nil
+	return GenImages(words, fontPts, 1), nil
 }

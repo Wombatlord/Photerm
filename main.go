@@ -396,7 +396,7 @@ func main() {
 		util.Must(PlayFromBuff(buf, charset, Args.FrameRate))
 	case "T":
 		// here we create the marquee image source to read text from the stdin
-		buf, err := photerm.Marquee(os.Stdin, 100)
+		buf, err := photerm.Marquee(os.Stdin, 100, 8)
 		if err != nil {
 			log.Fatal(err)
 		}
