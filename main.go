@@ -390,5 +390,12 @@ func main() {
 
 		go photerm.Stream2Buf(buf, stream, Args)
 		util.Must(PlayFromBuff(buf, charset, Args.FrameRate))
+	case "T":
+		buf, err := photerm.Marquee(os.Stdin, 100)
+		if err != nil {
+			log.Fatal(err)
+		}
+		buf = photerm.AppendScalingStep(buf, Args)
+		util.Must(PlayFromBuff(buf, charset, Args.FrameRate))
 	}
 }
