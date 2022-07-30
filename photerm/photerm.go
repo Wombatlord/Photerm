@@ -156,3 +156,24 @@ func (fc *FrameCache) BufferImagePath(imageBuffer chan image.Image, path PathSpe
 	close(imageBuffer)
 	return nil
 }
+
+// ScaleTransform is ScaleImg wrapped as a pipeline step, i.e.
+// an async generator that has an input and an output.
+func ScaleTransform(
+	out chan<- image.Image,
+	in <-chan image.Image,
+	sf ScaleFactors,
+) {
+	defer close(out)
+	for img := range in {
+		out <- ScaleImg(img, sf)
+	}
+}
+
+// AppendScalingStep attaches the scaling pipeline step to the image buffer
+func AppendScalingStep(in <-chan image.Image, sf ScaleFactors) <-chan image.Image {
+	out := make(chan image.Image)
+	go ScaleTransform(out, in, sf)
+
+	return out
+}
