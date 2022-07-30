@@ -394,6 +394,10 @@ func main() {
 
 		// and the played out to the terminal
 		util.Must(PlayFromBuff(buf, charset, Args.FrameRate))
+
+	// T stands for Text mode. Text mode expects string data from the stdin.
+	// This can be provided by pipe:
+	// 			$ echo 'foo' | photerm [ARGS]
 	case "T":
 		// here we create the marquee image source to read text from the stdin
 		buf, err := photerm.Marquee(os.Stdin, 100, 8)
