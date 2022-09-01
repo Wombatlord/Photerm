@@ -252,13 +252,29 @@ func main() {
 
 	case "S":
 		// S is the streaming mode!
+		// the async stream is represented by a <-chan []byte
 		stream, err := photerm.StreamMp4ToFrames(Args)
 		if err != nil {
 			log.Fatal(err)
 		}
 		buf := make(chan image.Image)
 
+		// here the stream is transformed into a <-chan image.Image
 		go photerm.Stream2Buf(buf, stream, Args)
+
+		// and the played out to the terminal
+		util.Must(PlayFromBuff(buf, charset, Args.FrameRate))
+
+	// T stands for Text mode. Text mode expects string data from the stdin.
+	// This can be provided by pipe:
+	// 			$ echo 'foo' | photerm [ARGS]
+	case "T":
+		// here we create the marquee image source to read text from the stdin
+		buf, err := photerm.Marquee(os.Stdin, 100, 8)
+		if err != nil {
+			log.Fatal(err)
+		}
+		buf = photerm.AppendScalingStep(buf, Args)
 		util.Must(PlayFromBuff(buf, charset, Args.FrameRate))
 	}
 }
