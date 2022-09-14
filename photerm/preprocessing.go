@@ -178,6 +178,6 @@ func Stream2Buf(buf chan<- image.Image, s <-chan []byte, sf ScaleFactors) {
 		if err != nil {
 			log.Fatal("stream2Buff: ", err)
 		}
-		buf <- ScaleImg(img, sf)
+		buf <- ScaleImgNoFC(img, sf)
 	}
 }

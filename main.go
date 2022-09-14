@@ -1,9 +1,7 @@
 package main
 
 import (
-
 	"bufio"
-	"encoding/json"
 
 	"fmt"
 	"image"
@@ -11,6 +9,7 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
+	"log"
 	"os"
 	"strings"
 	"time"
@@ -232,7 +231,7 @@ func main() {
 		// Provide a DIRECTORY to Mode B for sequential play of all images inside.
 
 		fc.LoadImageFiles(Args)
-	
+
 		// load image files in a goroutine
 		// ensures playback is not blocked by io.
 		imageBuffer := fc.BufferImageDir(Args)
@@ -247,13 +246,14 @@ func main() {
 		fc.BufferImagePath(imageBuffer, Args, Args)
 		PrintFromBuf(imageBuffer, charset)
 
-		util.Must(BufferImagePath(imageBuffer))
+		util.Must(fc.BufferImagePath(imageBuffer, Args, Args))
 		util.Must(PrintFromBuf(imageBuffer, charset))
 
 	case "S":
 		// S is the streaming mode!
 		// the async stream is represented by a <-chan []byte
 		stream, err := photerm.StreamMp4ToFrames(Args)
+
 		if err != nil {
 			log.Fatal(err)
 		}

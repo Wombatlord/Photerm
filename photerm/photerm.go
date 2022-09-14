@@ -157,6 +157,13 @@ func (fc *FrameCache) BufferImagePath(imageBuffer chan image.Image, path PathSpe
 	return nil
 }
 
+// ScaleImg does global scale and makes boyz wide
+// NOTE THIS IS TEMP FIX DUE TO FC ATTATCHED SCALEIMG FUNC.
+func ScaleImgNoFC(img image.Image, sf ScaleFactors) image.Image {
+	w, h := OutputDimsOf(sf, img)
+	return resize.Resize(w, h, img, resize.Lanczos2)
+}
+
 // ScaleTransform is ScaleImg wrapped as a pipeline step, i.e.
 // an async generator that has an input and an output.
 func ScaleTransform(
@@ -166,7 +173,7 @@ func ScaleTransform(
 ) {
 	defer close(out)
 	for img := range in {
-		out <- ScaleImg(img, sf)
+		out <- ScaleImgNoFC(img, sf)
 	}
 }
 
