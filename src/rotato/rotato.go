@@ -2,7 +2,7 @@ package rotato
 
 import (
 	"image/color"
-	"wombatlord/imagestuff/src/util"
+	"wombatlord/photerm/src/util"
 
 	"github.com/ungerik/go3d/quaternion"
 	"github.com/ungerik/go3d/vec3"

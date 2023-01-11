@@ -7,7 +7,7 @@ import (
 	"os"
 	"testing"
 	"time"
-	"wombatlord/imagestuff/photerm"
+	"wombatlord/photerm/photerm_src"
 )
 
 // a random number generator
