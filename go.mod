@@ -1,4 +1,4 @@
-module wombatlord/imagestuff
+module wombatlord/photerm
 
 go 1.18
 

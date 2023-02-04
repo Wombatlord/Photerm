@@ -6,7 +6,7 @@ import (
 	"image"
 	"os"
 	"strings"
-	"wombatlord/imagestuff/src/util"
+	"wombatlord/photerm/src/util"
 )
 
 const NotSet = 0

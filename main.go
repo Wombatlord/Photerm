@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"wombatlord/imagestuff/photerm"
-	"wombatlord/imagestuff/src/rotato"
-	"wombatlord/imagestuff/src/util"
+	"wombatlord/photerm/photerm_src"
+	"wombatlord/photerm/src/rotato"
+	"wombatlord/photerm/src/util"
 
 	"github.com/alexflint/go-arg"
 )
